@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import cx_Oracle as ora
 import sys
 import csv
