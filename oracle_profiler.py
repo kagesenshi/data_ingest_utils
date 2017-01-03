@@ -4,6 +4,8 @@ import csv
 import traceback
 from datetime import datetime
 from pprint import pprint
+import getpass
+import os
 import json
 
 def now():
@@ -32,30 +34,32 @@ class OracleProfiler(object):
             'connection_string': self.connstr,
             'datasource': self.ds,
             'tables': [],
+            'profiling_metadata': {
+                'user': getpass.getuser(),
+                'working_directory': os.getcwd(),
+                'environment': dict(os.environ)
+            }
         }
+        # we dont need the terminal color variable
+        if self.result['profiling_metadata']['environment'].get('LS_COLORS', None):
+           del self.result['profiling_metadata']['environment']['LS_COLORS']
 
 
     def update(self):
-        start_date = now()
+        self.result['profiling_metadata']['start_dt'] = now()
         try:
             con = ora.connect(self.connstr)
         except Exception, e:
             traceback.print_exc()
             self.result['error'] = str(e)
-            self.result['profiling_metadata'] = {
-                   'start_dt': start_date,
-                   'end_dt': now()
-            }
+            self.result['profiling_metadata']['end_dt'] = now()
             return 
         cur = con.cursor()
         self._tables = self._get_tables(cur)
         for t in self._tables:
             self.result['tables'].append(self._profile_table(cur, t))
 
-        self.result['profiling_metadata'] = {
-                'start_dt': start_date,
-                'end_dt': now()
-        }
+        self.result['profiling_metadata']['end_dt'] = now()
         con.close()
 
     def _get_tables(self, cursor):
@@ -90,31 +94,31 @@ class OracleProfiler(object):
         }
 
     def _get_split_by(self, columns, pkeys, ukeys):
-        for c in [i for i in columns if i[0] in pkeys]:
-            if c[1] == 'NUMBER':
-               return c
-        for c in [i for i in columns if i[0] in pkeys]:
-            if c[1] == 'DATE':
-               return c
-        for c in [i for i in columns if i[0] in ukeys]:
-            if c[1] == 'NUMBER':
-               return c
-        for c in [i for i in columns if i[0] in ukeys]:
-            if c[1] == 'DATE':
-               return c
+        for c in [i for i in columns if i['field'] in pkeys]:
+            if c['type'] == 'NUMBER':
+               return c['field']
+        for c in [i for i in columns if i['field'] in pkeys]:
+            if c['type'] == 'DATE':
+               return c['field']
+        for c in [i for i in columns if i['field'] in ukeys]:
+            if c['type'] == 'NUMBER':
+               return c['field']
+        for c in [i for i in columns if i['field'] in ukeys]:
+            if c['type'] == 'DATE':
+               return c['field']
         for c in columns:
-            if c[1] == 'DATE':
-               return c
+            if c['type'] == 'DATE':
+               return c['field']
         for c in columns:
-            if c[1] == 'NUMBER':
-               return c
-        return (None, None)
+            if c['type'] == 'NUMBER':
+               return c['field']
+        return None
 
 
 
     def _get_columns(self, cursor, table_name):
         _get_columns_sql = '''
-           SELECT cols.table_name, cols.column_name, cols.data_type
+           SELECT cols.column_name, cols.data_type
            FROM all_tab_columns cols
            WHERE cols.table_name = '%s'
            AND cols.owner = '%s'
@@ -122,8 +126,25 @@ class OracleProfiler(object):
         res = cursor.execute(_get_columns_sql)
         cols = []
         for col in res:
-            cols.append((col[1],col[2]))
+            cols.append({'field': col[0], 'type': col[1]})
+
+        _get_columns_comment = '''
+           SELECT cols.column_name, cols.comments
+           FROM all_col_comments cols
+           WHERE cols.table_name = '%s'
+           AND cols.owner = '%s'
+        ''' % (table_name, self.ds['schema'])
+
+        res = cursor.execute(_get_columns_comment)
+        comments = {}
+        for cmt in res:
+            comments[cmt[0]] = cmt[1]
+        
+        for col in cols:
+            col['comment'] = comments[col['field']]
+
         return cols
+
 
     def _get_primary_keys(self, cursor, table_name):
         _get_primary_key_sql = '''
@@ -163,8 +184,6 @@ class OracleProfiler(object):
     def test_connection(self):
         print '(%s) ANALYZING %s %s' % (now(), self.ds['name'], self.connstr)
         self.update()
-        if self.result.get('error', None):
-           print self.result['error']
 
     def save(self):
         res = self.result
