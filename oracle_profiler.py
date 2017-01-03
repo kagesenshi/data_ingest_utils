@@ -86,9 +86,6 @@ class OracleProfiler(object):
             'primary_keys': primary_keys,
             'unique_keys': unique_keys,
             'no_key': False if (primary_keys or unique_keys) else True,
-            'date_columns': [c[0] for c in columns if c[1] == 'DATE'],
-            'timestamp_columns': [c[0] for c in columns if c[1].startswith('TIMESTAMP')],
-            'numeric_columns': [c[0] for c in columns if c[1] == 'NUMBER'],
             'split_by': split_by,
         }
 
