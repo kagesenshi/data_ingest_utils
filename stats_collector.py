@@ -8,12 +8,16 @@ import urllib2
 import json
 from pprint import pprint
 import sys
+import traceback
 
 def send_nifi(url, data):
     print data
     req = urllib2.Request(url)
     req.add_header('Content-Type', 'application/json')
-    return urllib2.urlopen(req, data=json.dumps(data))
+    try:
+        return urllib2.urlopen(req, data=json.dumps(data))
+    except Exception, e:
+        traceback.print_exc()
 
 
 def start(sessionid, nifi_url):
@@ -36,10 +40,7 @@ def start(sessionid, nifi_url):
         }
         for idx, c in enumerate(cpu):
             res['CPU%s' % idx] = c
-        try:
-            send_nifi(nifi_url, res)
-        except:
-            pass
+        send_nifi(nifi_url, res)
 
 def main():
     if len(sys.argv) != 3:
