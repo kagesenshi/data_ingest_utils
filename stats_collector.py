@@ -40,9 +40,12 @@ def start(sessionid, nifi_url):
         except:
             pass
 
-if __name__ == '__main__':
+def main():
     if len(sys.argv) != 3:
         print "Usage: %s [SESSIONID] [ENDPOINT]" % sys.argv[0]
         print "Send system stats (CPU/RAM) to NiFi ListenHTTP Endpoint"
         sys.exit(1)
     start(sys.argv[1], sys.argv[2])
+
+if __name__ == '__main__':
+    main()
