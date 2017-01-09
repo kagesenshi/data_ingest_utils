@@ -32,6 +32,7 @@ def start(sessionid, nifi_url):
            'CPU': sum(cpu)/len(cpu),
            'NET_BYTES_SENT': net_io_end.bytes_sent - net_io_start.bytes_sent,
            'NET_BYTES_RECV': net_io_end.bytes_recv - net_io_start.bytes_recv,
+           'PROCESS_COUNT': len(psutil.pids())
         }
         for idx, c in enumerate(cpu):
             res['CPU%s' % idx] = c
