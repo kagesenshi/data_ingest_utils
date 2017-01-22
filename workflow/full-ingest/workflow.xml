@@ -6,7 +6,21 @@
             <value>/user/trace/source</value>
         </property>
     </parameters>
-    <start to="removeExisting"/>
+    <start to="getValues"/>
+    <action name="getValues">
+        <shell
+            xmlns="uri:oozie:shell-action:0.3">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <exec>python</exec>
+            <argument>date_helper.py</argument>
+            <file>date_helper.py</file>
+            <capture-output/>
+        </shell>
+        <ok to="removeExisting"/>
+        <error to="kill"/>
+    </action>
+
     <action name="removeExisting">
         <fs>
             <name-node>${nameNode}</name-node>
@@ -43,18 +57,17 @@
         <ok to="end"/>
         <error to="kill"/>
     </action>
-<!--
     <action name="distcp">
         <distcp
             xmlns="uri:oozie:distcp-action:0.2">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
             <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT/</arg>
-            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/${YEAR}-${MONTH}-${DAY}/</arg>
+            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/</arg>
         </distcp>
         <ok to="end"/>
         <error to="kill"/>
-    </action>-->
+    </action>
     <kill name="kill">
         <message>${wf:errorMessage(wf:lastErrorNode())}</message>
     </kill>
