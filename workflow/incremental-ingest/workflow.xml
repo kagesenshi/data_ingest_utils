@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="INCREMENT-INGEST-DIRECT-WF-${source_name}-${schema}-${table}">
+    <parameters>
+        <property>
+            <name>prefix</name>
+            <value>/user/trace/source</value>
+        </property>
+    </parameters>
+    <start to="getValues"/>
+    <action name="getValues">
+        <shell
+            xmlns="uri:oozie:shell-action:0.3">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <exec>python</exec>
+            <argument>hive_helper.py</argument>
+            <argument>-t</argument>
+            <argument>staging2.${source_name}_${schema}_${table}</argument>
+            <argument>-c</argument>
+            <argument>${check_column}</argument>
+            <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
+            <file>hive_helper.py</file>
+            <capture-output/>
+        </shell>
+        <ok to="removeExisting"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="removeExisting">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <delete path="${prefix}/${source_name}/${schema}_${table}/INCREMENT/"></delete>
+        </fs>
+        <ok to="sqoop"/>
+        <error to="kill"/>
+    </action>
+    <action name="sqoop">
+        <sqoop xmlns="uri:oozie:sqoop-action:0.3">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <job-xml>conf/oraoop-site.xml</job-xml>
+            <arg>import</arg>
+            <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
+            <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
+            <arg>--connect</arg>
+            <arg>${jdbc_uri}</arg>
+            <arg>-m</arg>
+            <arg>${mapper}</arg>
+            <arg>--table</arg>
+            <arg>${schema}.${table}</arg>
+            <arg>--target-dir</arg>
+            <arg>${prefix}/${source_name}/${schema}_${table}/INCREMENT</arg>
+            <arg>--delete-target-dir</arg>
+            <arg>--username</arg>
+            <arg>${username}</arg>
+            <arg>--password</arg>
+            <arg>${password}</arg>
+            <arg>--as-parquetfile</arg>
+            <arg>--direct</arg>
+            <arg>--map-column-java</arg>
+            <arg>${columns_java}</arg>
+            <arg>--where</arg>
+            <arg>${check_column} &gt; TO_TIMESTAMP('${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}', 'YYYY-MM-DD HH24:MI:SS.FF')</arg>
+        </sqoop>
+        <ok to="end"/>
+        <error to="kill"/>
+    </action>
+    <kill name="kill">
+        <message>${wf:errorMessage(wf:lastErrorNode())}</message>
+    </kill>
+    <end name="end"/>
+</workflow-app>
