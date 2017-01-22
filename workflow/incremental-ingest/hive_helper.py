@@ -16,6 +16,8 @@ def main():
     hive = '/usr/bin/hive'
     args = parser.parse_args()
     now = datetime.now()
+    utcnow = datetime.utcnow()
+
     if not os.path.exists(hive):
         sys.stderr.write('Hive Client is not installed')
         sys.exit(1)
@@ -38,8 +40,10 @@ def main():
       'CHECK_COLUMN_VALUE': p.stdout.read().strip(),
       'YEAR': now.strftime('%Y'),
       'MONTH': now.strftime('%m'),
-      'DAY': now.strftime('%d')
+      'DAY': now.strftime('%d'),
+      'UTCNOW': utcnow.strftime('%Y-%m-%d %H:%M:%S.0')
     }
+
     print '\n'.join(['%s=%s' % (k, v) for k,v in out.items()])
 
 if __name__ == '__main__':
