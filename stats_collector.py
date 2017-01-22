@@ -8,16 +8,12 @@ import urllib2
 import json
 from pprint import pprint
 import sys
-import traceback
 
 def send_nifi(url, data):
     print data
     req = urllib2.Request(url)
     req.add_header('Content-Type', 'application/json')
-    try:
-        return urllib2.urlopen(req, data=json.dumps(data))
-    except Exception, e:
-        traceback.print_exc()
+    return urllib2.urlopen(req, data=json.dumps(data))
 
 
 def start(sessionid, nifi_url):
@@ -40,14 +36,14 @@ def start(sessionid, nifi_url):
         }
         for idx, c in enumerate(cpu):
             res['CPU%s' % idx] = c
-        send_nifi(nifi_url, res)
+        try:
+            send_nifi(nifi_url, res)
+        except:
+            pass
 
-def main():
+if __name__ == '__main__':
     if len(sys.argv) != 3:
         print "Usage: %s [SESSIONID] [ENDPOINT]" % sys.argv[0]
         print "Send system stats (CPU/RAM) to NiFi ListenHTTP Endpoint"
         sys.exit(1)
     start(sys.argv[1], sys.argv[2])
-
-if __name__ == '__main__':
-    main()
