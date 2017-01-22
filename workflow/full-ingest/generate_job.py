@@ -62,11 +62,7 @@ for ds in json.loads(open(sys.argv[1]).read()):
         username = ds['datasource']['login']
         password = ds['datasource']['password']
 
-#        if source_name in ['SIEBEL_NOVA', 'CPC', 'BRM_NOVA']:
-#            workflow = 'full-ingest-direct'
-#        else:
-#            workflow = 'full-ingest'
-        workflow = 'full-ingest-direct'
+        workflow = 'full-ingest'
         params = {
             'mapper': int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2,
             'source_name': source_name,

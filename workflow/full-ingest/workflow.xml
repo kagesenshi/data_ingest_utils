@@ -54,7 +54,7 @@
             <arg>--map-column-java</arg>
             <arg>${columns_java}</arg>
         </sqoop>
-        <ok to="end"/>
+        <ok to="distcp"/>
         <error to="kill"/>
     </action>
     <action name="distcp">
@@ -63,7 +63,7 @@
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
             <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT/</arg>
-            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/</arg>
+            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/</arg>
         </distcp>
         <ok to="end"/>
         <error to="kill"/>
