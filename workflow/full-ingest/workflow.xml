@@ -44,14 +44,6 @@
         <error to="kill"/>
     </action>
 <!--
-    <action name="removeOldDistCP">
-        <fs>
-            <name-node>${nameNode}</name-node>
-            <delete path="${prefix}/${source_name}/${schema}_${table}/CURRENT/"></delete>
-        </fs>
-        <ok to="sqoop"/>
-        <error to="kill"/>
-    </action>
     <action name="distcp">
         <distcp
             xmlns="uri:oozie:distcp-action:0.2">
