@@ -1,6 +1,17 @@
 import sys
 import json
 
+
+hive_create_template = '''
+drop table if exists staging.%(source_name)s_%(schema)s_%(table)s;
+create external table staging.%(source_name)s_%(schema)s_%(table)s (
+   %(columns_create_newline)s
+)            
+STORED AS PARQUET
+LOCATION '/user/trace/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
+'''
+
+
 oozie_template = '''
 resourceManager=hdpmaster1.tm.com.my:8050
 queueName=ingestion
@@ -46,6 +57,7 @@ JAVA_TYPE_MAP = {
 }
 
 
+hive_create = []
 for ds in json.loads(open(sys.argv[1]).read()):
     for table in ds['tables']:
         mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
@@ -76,6 +88,7 @@ for ds in json.loads(open(sys.argv[1]).read()):
             'split_by': table['split_by'],
             'columns_java': ','.join(columns_java),
             'columns_create': ','.join(columns_create),
+            'columns_create_newline': ',\n    '.join(columns_create),
             'columns': ','.join([c['field'] for c in table['columns']]),
             'workflow': workflow,
             'merge_column': table['merge_key'],
@@ -95,4 +108,8 @@ for ds in json.loads(open(sys.argv[1]).read()):
             with open('incremental-ingest-jobs/%(workflow)s-%(source_name)s-%(schema)s-%(table)s.properties' % params2, 'w') as f:
                 f.write(job)
 
+        # generate hive create table
+        hive_create.append(hive_create_template % params) 
 
+with open('external-tables.sql', 'w') as f:
+     f.write('\n\n'.join(hive_create))
