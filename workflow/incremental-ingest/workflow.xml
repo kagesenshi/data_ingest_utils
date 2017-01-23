@@ -116,6 +116,14 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             <move source="${nameNode}/${prefix}/${source_name}/${schema}_${table}/RECONCILED" 
                     target="${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT"></move>
         </fs>
+        <ok to="prepDistcp"/>
+        <error to="kill"/>
+    </action>
+    <action name="prepDistcp">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <delete path="${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}"></delete>
+        </fs>
         <ok to="distcp"/>
         <error to="kill"/>
     </action>
@@ -127,9 +135,39 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT/</arg>
             <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/</arg>
         </distcp>
+        <ok to="exportFlat"/>
+        <error to="kill"/>
+    </action>
+    <action name="exportFlat">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <query>
+SET hive.exec.compress.output=false;
+
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}';
+
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_FLAT (
+    ${columns_create}
+) ROW FORMAT DELIMITED
+  FIELDS TERMINATED BY '~'
+  NULL DEFINED AS '\0'
+  STORED AS TEXTFILE
+  LOCATION '${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}';
+
+INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_FLAT
+SELECT
+    ${columns_flat}
+FROM ${source_name}_${schema}_${table}_CURRENT;
+            </query>
+        </hive>
         <ok to="end"/>
         <error to="kill"/>
     </action>
+
     <kill name="kill">
         <message>${wf:errorMessage(wf:lastErrorNode())}</message>
     </kill>
