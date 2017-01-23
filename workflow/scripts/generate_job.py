@@ -59,12 +59,13 @@ oozie_properties = OrderedDict([
     ('columns', None),
     ('columns_create', None),
     ('columns_java', None),
+    ('columns_flat', None),
 ])
 
 TYPE_MAP = {
     'VARCHAR2': 'STRING',
     'DATE': 'STRING',
-    'NUMBER': 'FLOAT',
+    'NUMBER': 'STRING',
     'CHAR': 'STRING',
     'LONG': 'BIGINT',
     'CLOB': 'BINARY',
@@ -74,7 +75,7 @@ TYPE_MAP = {
 JAVA_TYPE_MAP = {
     'VARCHAR2': 'String',
     'DATE': 'String',
-    'NUMBER': 'Float',
+    'NUMBER': 'String',
     'CHAR': 'String',
     'LONG': 'Long',
     'CLOB': 'Bytes',
@@ -117,11 +118,18 @@ def main():
             columns = [c['field'] for c in table['columns']]
             columns_create = []
             columns_java = []
+            columns_flat = []
             for c in table['columns']:
                 columns_create.append('`%s` %s' % (c['field'] , TYPE_MAP[c['type']]))
-                columns_java.append('%s=%s' % (c['field'], TYPE_MAP[c['type']]))
+                if JAVA_TYPE_MAP.get(c['type'], None):
+                    columns_java.append('%s=%s' % (c['field'], JAVA_TYPE_MAP[c['type']]))
+
+                if TYPE_MAP[c['type']] == 'STRING':
+                    columns_flat.append("regexp_replace(`%s`,'\\\\n',' ') AS `%s`" % (c['field'],c['field']))
+                else:
+                    columns_flat.append("`%s`" % c['field'])
+
             source_name = ds['datasource']['name'].replace(' ','_')
-    
             username = ds['datasource']['login']
             password = ds['datasource']['password']
    
@@ -143,6 +151,7 @@ def main():
                 'columns_java': ','.join(columns_java),
                 'columns_create': ','.join(columns_create),
                 'columns_create_newline': ',\n    '.join(columns_create),
+                'columns_flat': ','.join(columns_flat),
                 'columns': ','.join([c['field'] for c in table['columns']]),
                 'workflow': workflow,
                 'merge_column': table['merge_key'],
@@ -168,7 +177,6 @@ def main():
                 job = falcon_process(params)
                 f.write(job)
 
-    
             # generate hive create table
             hive_create.append(hive_create_template % params) 
     
