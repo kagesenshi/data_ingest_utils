@@ -95,7 +95,7 @@ class OracleProfiler(object):
             if col in unique_keys:
                continue
             non_key_cols.append(col)
-        merge_key = self._get_merge_key(primary_keys, unique_keys, unique_indexes)
+        merge_key = self._get_merge_key(columns, primary_keys, unique_keys, unique_indexes)
         check_column = self._get_check_column(indexed_columns, columns)
         return {
             'table': table_name,
@@ -115,22 +115,28 @@ class OracleProfiler(object):
 
     def _get_check_column(self, indexed_columns, columns):
         idxed = [i['field'] for i in indexed_columns]
-        mod_kw = ['LAST_UPD', 'MOD_T']
-        for kw in mod_kw:
-            for col in [i for i in columns if i['field'] in idxed]:
-                if kw in col['field'] and col['type'] in ['DATE','NUMBER']:
-                   return col['field']
-            for col in [i for i in columns if not i['field'] in idxed]:
-                if kw in col['field'] and col['type'] in ['DATE','NUMBER']:
-                   return col['field']
-        create_kw = ['CREATED']
-        for kw in create_kw:
-            for col in [i for i in columns if i['field'] in idxed]:
-                if kw in col['field'] and col['type'] in ['DATE','NUMBER']:
-                   return col['field']
-            for col in [i for i in columns if not i['field'] in idxed]:
-                if kw in col['field'] and col['type'] in ['DATE','NUMBER']:
-                   return col['field']
+        for col in columns:
+            for kw in ['LAST_UPD', 'MOD_T']:
+                if (kw in col['field'] and col['field'] in idxed
+                            and col['type'] in ['DATE','NUMBER']):
+                    return col['field']
+        for col in columns:
+            for kw in ['CREATED']:
+                if (kw in col['field'] and col['field'] in idxed
+                            and col['type'] in ['DATE','NUMBER']):
+                    return col['field']
+
+        for col in columns:
+            for kw in ['LAST_UPD', 'MOD_T']:
+                if kw in col['field']:
+                    return col['field']
+
+        for col in columns:
+            for kw in ['CREATED']:
+                if kw in col['field']:
+                    return col['field']
+
+
         return None
 
     def _get_row_stats(self, cursor, table_name):
@@ -142,13 +148,12 @@ class OracleProfiler(object):
         return None, None
 
 
-    def _get_merge_key(self, pkeys, ukeys, uixs):
-        if uixs:
-            return uixs[0]
-        if ukeys:
-            return ukeys[0]
-        if pkeys:
-            return pkeys[0]
+    def _get_merge_key(self, columns, pkeys, ukeys, uixs):
+        for col in columns:
+            if ((col['field'] in uixs) or
+                (col['field'] in ukeys) or
+                (col['field'] in pkeys)):
+                return col['field']
         return None
 
     def _get_split_by(self, columns, indexes, pkeys, ukeys):

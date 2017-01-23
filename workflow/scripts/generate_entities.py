@@ -57,7 +57,7 @@ TYPE_MAP = {
 
 for ds in json.loads(open(sys.argv[1]).read()):
     for table in ds['tables']:
-        mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 1
+        mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
         if mapper > 20:
             mapper = 20
         columns = ['`SQOOP_ORACLE_ROWID` STRING']
