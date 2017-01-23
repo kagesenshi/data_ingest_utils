@@ -15,7 +15,7 @@
             <exec>python</exec>
             <argument>hive_helper.py</argument>
             <argument>-t</argument>
-            <argument>staging2.${source_name}_${schema}_${table}</argument>
+            <argument>staging.${source_name}_${schema}_${table}</argument>
             <argument>-c</argument>
             <argument>${check_column}</argument>
             <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
@@ -62,6 +62,71 @@
             <arg>--where</arg>
             <arg>${check_column} &gt; TO_TIMESTAMP('${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}', 'YYYY-MM-DD HH24:MI:SS.FF')</arg>
         </sqoop>
+        <ok to="hiveReconcile"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="hiveReconcile">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <query>
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/CURRENT';
+
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/INCREMENT';
+
+DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
+SELECT t1.* FROM
+    (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
+    UNION ALL
+    SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t1
+JOIN
+    (SELECT ${merge_column}, max(${check_column}) max_value FROM
+        (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
+        UNION ALL
+        SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t2
+        GROUP BY ${merge_column}) s
+    ON t1.${merge_column} = s.${merge_column} AND t1.${check_column} = s.max_value;
+
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/RECONCILED';
+
+INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
+SELECT * FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+
+DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+            </query>
+        </hive>
+        <ok to="moveToCurrent"/>
+        <error to="kill"/>
+    </action>
+    <action name="moveToCurrent">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <delete path="${nameNode}/${prefix}/${source_name}/${schema}_${table}/PREVIOUS"></delete>
+            <move source="${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT" 
+                    target="${nameNode}/${prefix}/${source_name}/${schema}_${table}/PREVIOUS"></move>
+            <move source="${nameNode}/${prefix}/${source_name}/${schema}_${table}/RECONCILED" 
+                    target="${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT"></move>
+        </fs>
+        <ok to="distcp"/>
+        <error to="kill"/>
+    </action>
+    <action name="distcp">
+        <distcp
+            xmlns="uri:oozie:distcp-action:0.2">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT/</arg>
+            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/</arg>
+        </distcp>
         <ok to="end"/>
         <error to="kill"/>
     </action>

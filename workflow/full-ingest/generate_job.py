@@ -11,6 +11,8 @@ jdbc_uri=jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s
 schema=%(schema)s
 table=%(table)s
 split_by=%(split_by)s
+merge_column=%(merge_key)s
+check_column=%(check_column)s
 username=%(username)s
 password=%(password)s
 oozie.wf.application.path=/user/trace/workflows/%(workflow)s/
@@ -46,11 +48,9 @@ JAVA_TYPE_MAP = {
 
 for ds in json.loads(open(sys.argv[1]).read()):
     for table in ds['tables']:
-        mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 1
+        mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
         if mapper > 20:
             mapper = 20
-
-
         columns = [c['field'] for c in table['columns']]
         columns_create = []
         columns_java = []
@@ -64,7 +64,7 @@ for ds in json.loads(open(sys.argv[1]).read()):
 
         workflow = 'full-ingest'
         params = {
-            'mapper': int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2,
+            'mapper': mapper, 
             'source_name': source_name,
             'host': ds['datasource']['ip'],
             'port': ds['datasource']['port'],
@@ -77,7 +77,9 @@ for ds in json.loads(open(sys.argv[1]).read()):
             'columns_java': ','.join(columns_java),
             'columns_create': ','.join(columns_create),
             'columns': ','.join([c['field'] for c in table['columns']]),
-            'workflow': workflow
+            'workflow': workflow,
+            'merge_column': table['merge_key'],
+            'check_column': table['check_column'],
         }
         job = template % params
         with open('jobs/%(workflow)s-%(source_name)s-%(schema)s-%(table)s.properties' % params, 'w') as f:
