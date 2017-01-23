@@ -108,6 +108,11 @@ CREATE EXTERNAL TABLE ${stagingdb}.${source_name}_${schema}_${table} (
             <name-node>${nameNode}</name-node>
             <query>
 SET hive.exec.compress.output=false;
+
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}';
+
 CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_FLAT (
     ${columns_create}
 ) ROW FORMAT DELIMITED
@@ -119,7 +124,7 @@ CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_FLAT (
 INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_FLAT
 SELECT 
     ${columns_flat}
-FROM ${stagingdb}.${source_name}_${schema}_${table};
+FROM ${source_name}_${schema}_${table}_CURRENT;
             </query>
         </hive>
         <ok to="end"/>
