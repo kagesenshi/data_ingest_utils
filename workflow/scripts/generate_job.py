@@ -1,7 +1,7 @@
 import sys
 import json
 
-template = '''
+oozie_template = '''
 resourceManager=hdpmaster1.tm.com.my:8050
 queueName=ingestion
 nameNode=hdfs://hdpmaster1.tm.com.my:8020
@@ -11,7 +11,7 @@ jdbc_uri=jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s
 schema=%(schema)s
 table=%(table)s
 split_by=%(split_by)s
-merge_column=%(merge_key)s
+merge_column=%(merge_column)s
 check_column=%(check_column)s
 username=%(username)s
 password=%(password)s
@@ -81,6 +81,18 @@ for ds in json.loads(open(sys.argv[1]).read()):
             'merge_column': table['merge_key'],
             'check_column': table['check_column'],
         }
-        job = template % params
-        with open('jobs/%(workflow)s-%(source_name)s-%(schema)s-%(table)s.properties' % params, 'w') as f:
+
+        # generate full ingest scripts
+        job = oozie_template % params
+        with open('full-ingest-jobs/%(workflow)s-%(source_name)s-%(schema)s-%(table)s.properties' % params, 'w') as f:
             f.write(job)
+
+        # generate incremental ingest scripts
+        if params['merge_column'] and params['check_column']:
+            params2 = params.copy()
+            params2['workflow'] = 'incremental-ingest'
+            job = oozie_template % params2
+            with open('incremental-ingest-jobs/%(workflow)s-%(source_name)s-%(schema)s-%(table)s.properties' % params2, 'w') as f:
+                f.write(job)
+
+
