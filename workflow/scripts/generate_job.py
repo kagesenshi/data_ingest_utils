@@ -39,23 +39,24 @@ falcon_process_template = '''
 
 oozie_properties = OrderedDict([
     ('resourceManager','hdpmaster1.tm.com.my:8050'),
-    ('queueName','ingestion'),
+    ('jobTracker','hdpmaster1.tm.com.my:8050'),
     ('nameNode','hdfs://hdpmaster1.tm.com.my:8020'),
-    ('mapper', None),
-    ('source_name', None),
-    ('jdbc_uri','jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
-    ('schema', None),
-    ('table', None),
-    ('split_by', None),
-    ('merge_column', None),
-    ('check_column', None),
-    ('username', None),
-    ('password',None),
     ('oozie.wf.application.path','/user/trace/workflows/%(workflow)s/'),
     ('oozie.use.system.libpath','true'),
     ('user.name','trace'),
     ('mapreduce.job.user.name','trace'),
-    ('jobTracker','hdpmaster1.tm.com.my:8050'),
+    ('queueName','ingestion'),
+    ('jdbc_uri','jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
+    ('username', None),
+    ('password',None),
+    ('source_name', None),
+    ('schema', None),
+    ('table', None),
+    ('mapper', None),
+    ('split_by', None),
+    ('merge_column', None),
+    ('check_column', None),
+    ('field_delimiter', '~^'),
     ('columns', None),
     ('columns_create', None),
     ('columns_java', None),
@@ -157,7 +158,10 @@ def main():
                 'merge_column': table['merge_key'],
                 'check_column': table['check_column'],
             }
-    
+   
+            if params['source_name'] == 'CPC' and params['schema'] == 'SIEBEL' and params['table'] == 'S_CONTACT':
+                params['field_delimiter'] = '^~'
+
             # generate full ingest scripts
             full_ingest_params = params.copy()
             full_ingest_params['workflow'] = 'full-ingest'
