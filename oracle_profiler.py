@@ -116,9 +116,12 @@ class OracleProfiler(object):
     def _get_check_column(self, indexed_columns, columns):
         idxed = [i['field'] for i in indexed_columns]
         for col in columns:
+            if col['field'] == 'DB_LAST_UPD':
+                continue
             for kw in ['LAST_UPD', 'MOD_T']:
                 if (kw in col['field'] and col['field'] in idxed
                             and col['type'] in ['DATE','NUMBER']):
+
                     return col['field']
         for col in columns:
             for kw in ['CREATED']:
@@ -127,6 +130,8 @@ class OracleProfiler(object):
                     return col['field']
 
         for col in columns:
+            if col['field'] == 'DB_LAST_UPD':
+                continue
             for kw in ['LAST_UPD', 'MOD_T']:
                 if kw in col['field']:
                     return col['field']
@@ -171,13 +176,13 @@ class OracleProfiler(object):
                return c['field']
         index_names = [i['field'] for i in indexes]
         for c in [i for i in columns if i['field'] in index_names]:
-            if c['type'] == 'DATE':
-               return c['field']
+#            if c['type'] == 'DATE':
+#               return c['field']
             if c['type'] == 'NUMBER':
                return c['field']
-        for c in columns:
-            if c['type'] == 'DATE':
-               return c['field']
+#        for c in columns:
+#            if c['type'] == 'DATE':
+#               return c['field']
         for c in columns:
             if c['type'] == 'NUMBER':
                return c['field']
