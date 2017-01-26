@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<workflow-app xmlns="uri:oozie:workflow:0.5" name="INCREMENT-INGEST-DIRECT-WF-${source_name}-${schema}-${table}">
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="DEV-INCREMENT-INGEST-DIRECT-WF-${source_name}-${schema}-${table}">
     <parameters>
         <property>
             <name>prefix</name>
-            <value>/user/trace/source</value>
+            <value>/user/trace/development-izhar/source/</value>
+        </property>
+        <property>
+            <name>flat_prefix</name>
+            <value>/user/trace/development-izhar/source_flat/</value>
+        </property>
+        <property>
+            <name>stagingdb</name>
+            <value>stagingdev</value>
         </property>
     </parameters>
     <start to="getValues"/>
@@ -14,10 +22,12 @@
             <name-node>${nameNode}</name-node>
             <exec>python</exec>
             <argument>hive_helper.py</argument>
-            <argument>-t</argument>
-            <argument>staging.${source_name}_${schema}_${table}</argument>
+            <argument>-p</argument>
+            <argument>${prefix}/${source_name}/${schema}_${table}/CURRENT</argument>
             <argument>-c</argument>
             <argument>${check_column}</argument>
+            <argument>-d</argument>
+            <argument>${columns_create}</argument>
             <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
             <file>hive_helper.py</file>
             <capture-output/>
@@ -30,6 +40,7 @@
         <fs>
             <name-node>${nameNode}</name-node>
             <delete path="${prefix}/${source_name}/${schema}_${table}/INCREMENT/"></delete>
+            <delete path="${prefix}/${source_name}/${schema}_${table}/RECONCILED/"></delete>
         </fs>
         <ok to="sqoop"/>
         <error to="kill"/>
@@ -38,14 +49,15 @@
         <sqoop xmlns="uri:oozie:sqoop-action:0.3">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
-            <job-xml>conf/oraoop-site.xml</job-xml>
+            <!--<job-xml>conf/oraoop-site.xml</job-xml>-->
             <arg>import</arg>
             <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
-            <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
+            <!--<arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>-->
             <arg>--connect</arg>
             <arg>${jdbc_uri}</arg>
             <arg>-m</arg>
-            <arg>${mapper}</arg>
+            <arg>1</arg>
+            <!--<arg>${mapper}</arg>-->
             <arg>--table</arg>
             <arg>${schema}.${table}</arg>
             <arg>--target-dir</arg>
@@ -56,7 +68,7 @@
             <arg>--password</arg>
             <arg>${password}</arg>
             <arg>--as-parquetfile</arg>
-            <arg>--direct</arg>
+            <!--<arg>-direct</arg>-->
             <arg>--map-column-java</arg>
             <arg>${columns_java}</arg>
             <arg>--where</arg>
@@ -104,6 +116,17 @@ SELECT * FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             </query>
         </hive>
+        <ok to="copyAvroMetadata"/>
+        <error to="kill"/>
+    </action>
+    <action name="copyAvroMetadata">
+        <distcp
+            xmlns="uri:oozie:distcp-action:0.2">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/INCREMENT/.metadata</arg>
+            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/RECONCILED/</arg>
+        </distcp>
         <ok to="moveToCurrent"/>
         <error to="kill"/>
     </action>
@@ -135,6 +158,31 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT/</arg>
             <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/</arg>
         </distcp>
+        <ok to="markRawDataReady"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="markRawDataReady">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <touchz path="${nameNode}/${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/_SUCCESS"></touchz>
+        </fs>
+        <ok to="createExternalTable"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="createExternalTable">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <query>
+DROP TABLE IF EXISTS ${stagingdb}.${source_name}_${schema}_${table};
+CREATE EXTERNAL TABLE ${stagingdb}.${source_name}_${schema}_${table} (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}';
+            </query>
+        </hive>
         <ok to="exportFlat"/>
         <error to="kill"/>
     </action>
@@ -145,6 +193,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             <name-node>${nameNode}</name-node>
             <query>
 SET hive.exec.compress.output=false;
+ADD JAR ${nameNode}/user/oozie/share/lib/lib_20161221211109/hive/hive-contrib-1.2.1000.2.5.3.0-37.jar;
 
 CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
     ${columns_create}
@@ -152,18 +201,28 @@ CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
 
 CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_FLAT (
     ${columns_create}
-) ROW FORMAT DELIMITED
-  FIELDS TERMINATED BY '~'
-  NULL DEFINED AS '\0'
-  STORED AS TEXTFILE
-  LOCATION '${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}';
-
+) ROW FORMAT SERDE "org.apache.hadoop.hive.contrib.serde2.MultiDelimitSerDe"
+  WITH SERDEPROPERTIES (
+      'field.delim'='${field_delimiter}'
+  )
+  LOCATION '${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}'
+  TBLPROPERTIES('serialization.null.format'='');
+    
 INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_FLAT
 SELECT
     ${columns_flat}
 FROM ${source_name}_${schema}_${table}_CURRENT;
             </query>
         </hive>
+        <ok to="markFlatDataReady"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="markFlatDataReady">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <touchz path="${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/_SUCCESS"></touchz>
+        </fs>
         <ok to="end"/>
         <error to="kill"/>
     </action>
