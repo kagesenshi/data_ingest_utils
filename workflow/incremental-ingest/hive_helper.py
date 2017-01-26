@@ -6,11 +6,23 @@ import os, sys
 from datetime import datetime
 import time
 import shutil
+import tempfile
+
+SCRIPT='''
+create temporary external table default.%(tablename)s (
+    %(table_columns)s
+) STORED AS PARQUET
+LOCATION "%(path)s";
+
+select %(op)s(%(check_column)s) from default.%(tablename)s;
+'''
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t','--table', dest='table', required=True)
-    parser.add_argument('-c','--column', dest='column', required=True)
+    parser.add_argument('-p','--path', dest='path', required=True)
+    parser.add_argument('-d','--table-columns', dest='table_columns', required=True)
+    parser.add_argument('-c','--check_column', dest='check_column', required=True)
     parser.add_argument('-o','--operation', dest='operation', default='max')
 
     hive = '/usr/bin/hive'
@@ -25,17 +37,24 @@ def main():
         sys.stderr.write('Tez Client is not installed')
         sys.exit(1)
 
+    scriptname = tempfile.mktemp()
+    script = '%s.sql' % scriptname
+    tablename = os.path.basename(scriptname)
+    with open(script, 'w') as s:
+        s.write(SCRIPT % {
+             'path': args.path,
+             'table_columns': args.table_columns,
+             'check_column': args.check_column,
+             'op': args.operation,
+             'tablename': 'increment_%s' % (tablename)
+        })
     env = os.environ.copy()
-    p = subprocess.Popen(['hive',
-        '-e','select %(op)s(%(column)s) from %(table)s' % {
-            'table': args.table,
-            'column': args.column,
-            'op': args.operation
-            }],stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
-               env=env)
+    p = subprocess.Popen(['hive','-f', script],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     if p.wait() != 0:
         sys.stderr.write(p.stderr.read())
         sys.exit(1)
+
     out = {
       'CHECK_COLUMN_VALUE': p.stdout.read().strip(),
       'YEAR': now.strftime('%Y'),
