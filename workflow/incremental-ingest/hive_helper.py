@@ -60,7 +60,8 @@ def main():
       'YEAR': now.strftime('%Y'),
       'MONTH': now.strftime('%m'),
       'DAY': now.strftime('%d'),
-      'UTCNOW': utcnow.strftime('%Y-%m-%d %H:%M:%S.0')
+      'UTCNOW': utcnow.strftime('%Y-%m-%d %H:%M:%S.0'),
+      'DATE': now.strftime('%Y-%m-%d')
     }
 
     print '\n'.join(['%s=%s' % (k, v) for k,v in out.items()])
