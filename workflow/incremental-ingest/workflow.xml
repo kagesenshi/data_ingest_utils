@@ -276,7 +276,7 @@ FROM ${targetdb}.${schema}_${table}_CURRENT;
     <action name="markORCDataReady">
         <fs>
             <name-node>${nameNode}</name-node>
-            <touchz path="/apps/hive/warehouse/${source_name}/${schema}_${table}/_SUCCESS"></touchz>
+            <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
         </fs>
         <ok to="endJoin"/>
         <error to="kill"/>

@@ -3,16 +3,27 @@
     <parameters>
         <property>
             <name>prefix</name>
-            <value>/user/trace/source</value>
+            <value>/user/trace/development-izhar/source</value>
         </property>
         <property>
             <name>flat_prefix</name>
-            <value>/user/trace/source_flat/</value>
+            <value>/user/trace/development-izhar/source_flat/</value>
         </property>
         <property>
             <name>stagingdb</name>
-            <value>staging</value>
+            <value>staging_dev</value>
         </property>
+        <property>
+            <name>targetdb</name>
+            <value>${source_name}_dev</value>
+        </property>
+        <property>
+            <name>outputdir</name>
+            <value>${prefix}/${source_name}/${schema}_${table}</value>
+        </property>
+        <property>
+            <name>staging_tbl</name>
+            <value>${source_name}_${schema}_${table}</value>
     </parameters>
     <start to="getValues"/>
     <action name="getValues">
@@ -32,7 +43,7 @@
     <action name="removeExisting">
         <fs>
             <name-node>${nameNode}</name-node>
-            <delete path="${prefix}/${source_name}/${schema}_${table}/CURRENT/"></delete>
+            <delete path="${outputdir}/CURRENT/"></delete>
         </fs>
         <ok to="sqoop"/>
         <error to="kill"/>
@@ -44,6 +55,7 @@
             <job-xml>conf/oraoop-site.xml</job-xml>
             <arg>import</arg>
             <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
+            <arg>-Doraoop.import.consistent.read=true</arg>
             <arg>--connect</arg>
             <arg>${jdbc_uri}</arg>
             <arg>-m</arg>
@@ -51,7 +63,7 @@
             <arg>--table</arg>
             <arg>${schema}.${table}</arg>
             <arg>--target-dir</arg>
-            <arg>${prefix}/${source_name}/${schema}_${table}/CURRENT</arg>
+            <arg>${outputdir}/CURRENT</arg>
             <arg>--delete-target-dir</arg>
             <arg>--username</arg>
             <arg>${username}</arg>
@@ -69,7 +81,7 @@
     <action name="prepDistcp">
         <fs>
             <name-node>${nameNode}</name-node>
-            <delete path="${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}"></delete>
+            <delete path="${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}"></delete>
         </fs>
         <ok to="distcp"/>
         <error to="kill"/>
@@ -79,8 +91,8 @@
             xmlns="uri:oozie:distcp-action:0.2">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
-            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/CURRENT/</arg>
-            <arg>${nameNode}/${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/</arg>
+            <arg>${nameNode}/${outputdir}/CURRENT/</arg>
+            <arg>${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
         </distcp>
         <ok to="markRawDataReady"/>
         <error to="kill"/>
@@ -88,7 +100,7 @@
     <action name="markRawDataReady">
         <fs>
             <name-node>${nameNode}</name-node>
-            <touchz path="${nameNode}/${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/_SUCCESS"></touchz>
+            <touchz path="${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
         </fs>
         <ok to="createExternalTable"/>
         <error to="kill"/>
@@ -99,16 +111,20 @@
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
             <query>
-DROP TABLE IF EXISTS ${stagingdb}.${source_name}_${schema}_${table};
-CREATE EXTERNAL TABLE ${stagingdb}.${source_name}_${schema}_${table} (
+DROP TABLE IF EXISTS ${stagingdb}.${staging_tbl};
+CREATE EXTERNAL TABLE ${stagingdb}.${staging_tbl} (
     ${columns_create}
-) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}';
+) STORED AS PARQUET LOCATION '${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}';
             </query>
         </hive>
         <ok to="exportFlat"/>
         <error to="kill"/>
     </action>
 
+    <fork name="exportFork">
+        <path start="exportFlat"/>
+        <path start="exportORC"/>
+    </fork>
     <action name="exportFlat">
         <hive
             xmlns="uri:oozie:hive-action:0.6">
@@ -118,23 +134,23 @@ CREATE EXTERNAL TABLE ${stagingdb}.${source_name}_${schema}_${table} (
 SET hive.exec.compress.output=false;
 ADD JAR ${nameNode}/user/oozie/share/lib/lib_20161221211109/hive/hive-contrib-1.2.1000.2.5.3.0-37.jar;
 
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
+CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_CURRENT (
     ${columns_create}
-) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/ingest_date=${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}';
+) STORED AS PARQUET LOCATION '${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}';
 
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_FLAT (
+CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_FLAT (
     ${columns_create}
 ) ROW FORMAT SERDE "org.apache.hadoop.hive.contrib.serde2.MultiDelimitSerDe"
   WITH SERDEPROPERTIES (
       'field.delim'='${field_delimiter}'
   )
-  LOCATION '${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}'
+  LOCATION '${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['DATE']}'
   TBLPROPERTIES('serialization.null.format'='');
     
-INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_FLAT
+INSERT OVERWRITE TABLE ${staging_tbl}_FLAT
 SELECT 
     ${columns_flat}
-FROM ${source_name}_${schema}_${table}_CURRENT;
+FROM ${staging_tbl}_CURRENT;
             </query>
         </hive>
         <ok to="markFlatDataReady"/>
@@ -144,12 +160,48 @@ FROM ${source_name}_${schema}_${table}_CURRENT;
     <action name="markFlatDataReady">
         <fs>
             <name-node>${nameNode}</name-node>
-            <touchz path="${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['YEAR']}-${wf:actionData('getValues')['MONTH']}-${wf:actionData('getValues')['DAY']}/_SUCCESS"></touchz>
+            <touchz path="${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
         </fs>
-        <ok to="end"/>
+        <ok to="endJoin"/>
         <error to="kill"/>
     </action>
 
+    <action name="exportORC">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <query>
+CREATE DATABASE IF NOT EXISTS ${source_name};
+
+CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}';
+
+CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table} (
+    ${columns_create}
+) STORED AS ORC;
+    
+INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
+SELECT 
+    ${columns_flat}
+FROM ${targetdb}.${schema}_${table}_CURRENT;
+            </query>
+        </hive>
+        <ok to="markORCDataReady"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="markORCDataReady">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
+        </fs>
+        <ok to="endJoin"/>
+        <error to="kill"/>
+    </action>
+
+    <join name="endJoin" to="end"/>
     <kill name="kill">
         <message>${wf:errorMessage(wf:lastErrorNode())}</message>
     </kill>
