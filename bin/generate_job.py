@@ -1,7 +1,10 @@
+#!/usr/bin/env python
+
 import sys
 import json
 import argparse
 from collections import OrderedDict
+import os
 
 hive_create_template = '''
 drop table if exists staging.%(source_name)s_%(schema)s_%(table)s;
@@ -83,10 +86,19 @@ JAVA_TYPE_MAP = {
     'RAW': 'Bytes'
 }
 
+STAGES = {
+   'dev': {
+      'wfbasepath': '/user/trace/development/workflows/'
+   },
+   'prod': {
+      'wfbasepath': '/user/trace/workflows/'
+   }
+}
+
 def oozie_config(properties):
     prop = oozie_properties.copy()
     prop['jdbc_uri'] = prop['jdbc_uri'] % properties
-    prop['oozie.wf.application.path'] = prop['oozie.wf.application.path'] % properties
+    prop['oozie.wf.application.path'] = properties['wfpath']
     for k,v in prop.items():
         if k in properties.keys():
             prop[k] = properties[k]
@@ -104,7 +116,7 @@ def falcon_process(properties):
         'frequency_hours': 24,
         'workflow_path': prop['oozie.wf.application.path'],
         'properties': '\n       '.join(
-            ['<property name="%s" value="%s"/>' % (k,v) for (k,v) in prop.items()])
+            ['<property name="%s" value="%s"/>' % (k,v) for (k,v) in prop.items() if '.' not in k])
     }
     job = falcon_process_template % params
     return job
@@ -163,24 +175,29 @@ def main():
                 params['field_delimiter'] = '^~'
 
             # generate full ingest scripts
-            full_ingest_params = params.copy()
-            full_ingest_params['workflow'] = 'full-ingest'
-            filename = '%(workflow)s-%(source_name)s-%(schema)s-%(table)s.properties' % full_ingest_params
-            with open('full-ingest-jobs/%s' % filename, 'w') as f:
-                job = '\n'.join(['%s=%s' % (k,v) for k,v in oozie_config(full_ingest_params).items()])
-                f.write(job)
-   
-            if params['workflow'] == 'incremental-ingest':
-                filename = '%(workflow)s-%(source_name)s-%(schema)s-%(table)s.properties' % params
-                with open('incremental-ingest-jobs/%s' % filename, 'w') as f:
-                    job = '\n'.join(['%s=%s' % (k,v) for k,v in oozie_config(params).items()])
-                    f.write(job)
 
-            filename = '%(source_name)s-%(schema)s-%(table)s.xml' % params
-            with open('falcon-process/%s' % filename, 'w') as f:
-                job = falcon_process(params)
-                f.write(job)
-
+            for stage, conf in STAGES.items():
+                for ingest in ['full-ingest', 'incremental-ingest', 'incremental-ingest-frozen']:
+                    opts = params.copy()
+                    opts['wfpath'] = os.path.join(conf['wfbasepath'],ingest)
+                    filename = '%(source_name)s-%(schema)s-%(table)s.properties' % opts
+                    storedir = 'artifacts/%s-oozie-%s' % (stage, ingest)
+                    if 'increment' in ingest and not 'increment' in opts['workflow']:
+                       continue
+                    if not os.path.exists(storedir):
+                        os.makedirs(storedir)
+                    with open('%s/%s' % (storedir, filename), 'w') as f:
+                        job = '\n'.join(['%s=%s' % (k,v) for k,v in oozie_config(opts).items()])
+                        f.write(job)
+    
+                    filename = '%(source_name)s-%(schema)s-%(table)s.xml' % opts
+                    storedir = 'artifacts/%s-falconprocess-%s' % (stage, ingest)
+                    if not os.path.exists(storedir): 
+                        os.makedirs(storedir)
+                    with open('%s/%s' % (storedir,filename), 'w') as f:
+                        job = falcon_process(opts)
+                        f.write(job)
+    
             # generate hive create table
             hive_create.append(hive_create_template % params) 
     
