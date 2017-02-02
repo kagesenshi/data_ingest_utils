@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="DEV-TEST-INCREMENT-WF-${source_name}-${schema}-${table}">
+    <parameters>
+        <property>
+            <name>prefix</name>
+            <value>/user/trace/development-izhar/source/</value>
+        </property>
+        <property>
+            <name>flat_prefix</name>
+            <value>/user/trace/development-izhar/source_flat/</value>
+        </property>
+        <property>
+            <name>stagingdb</name>
+            <value>staging_dev</value>
+        </property>
+    </parameters>
+    <start to="getValues"/>
+    <action name="getValues">
+        <shell
+            xmlns="uri:oozie:shell-action:0.3">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <exec>python</exec>
+            <argument>hive_helper.py</argument>
+            <argument>-p</argument>
+            <argument>${prefix}/${source_name}/${schema}_${table}/CURRENT</argument>
+            <argument>-c</argument>
+            <argument>${check_column}</argument>
+            <argument>-d</argument>
+            <argument>${columns_create}</argument>
+            <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
+            <file>hive_helper.py</file>
+            <capture-output/>
+        </shell>
+        <ok to="removeExisting"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="removeExisting">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <delete path="${prefix}/${source_name}/${schema}_${table}/INCREMENT/"></delete>
+            <delete path="${prefix}/${source_name}/${schema}_${table}/RECONCILED/"></delete>
+        </fs>
+        <ok to="sqoop"/>
+        <error to="kill"/>
+    </action>
+    <action name="sqoop">
+        <sqoop xmlns="uri:oozie:sqoop-action:0.3">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <job-xml>conf/oraoop-site.xml</job-xml>
+            <arg>import</arg>
+            <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
+            <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
+            <arg>-Doraoop.import.consistent.read=true</arg>
+            <arg>--connect</arg>
+            <arg>${jdbc_uri}</arg>
+            <arg>-m</arg>
+            <arg>${mapper}</arg>
+            <arg>--table</arg>
+            <arg>${schema}.${table}</arg>
+            <arg>--target-dir</arg>
+            <arg>${prefix}/${source_name}/${schema}_${table}/INCREMENT</arg>
+            <arg>--delete-target-dir</arg>
+            <arg>--username</arg>
+            <arg>${username}</arg>
+            <arg>--password</arg>
+            <arg>${password}</arg>
+            <arg>--as-parquetfile</arg>
+            <arg>-direct</arg>
+            <arg>--map-column-java</arg>
+            <arg>${columns_java}</arg>
+            <arg>--where</arg>
+            <arg>${check_column} &gt; TO_TIMESTAMP('${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}', 'YYYY-MM-DD HH24:MI:SS.FF')</arg>
+        </sqoop>
+        <ok to="hiveReconcile"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="hiveReconcile">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <query>
+use inctest;
+CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/CURRENT';
+
+CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/INCREMENT';
+
+DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
+SELECT t1.* FROM
+    (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
+    UNION ALL
+    SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t1
+JOIN
+    (SELECT ${merge_column}, max(${check_column}) max_value FROM
+        (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
+        UNION ALL
+        SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t2
+        GROUP BY ${merge_column}) s
+    ON t1.${merge_column} = s.${merge_column} AND t1.${check_column} = s.max_value;
+
+CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/RECONCILED';
+
+INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
+SELECT * FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+
+DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+            </query>
+        </hive>
+        <ok to="end"/>
+        <error to="kill"/>
+    </action>
+    <kill name="kill">
+        <message>${wf:errorMessage(wf:lastErrorNode())}</message>
+    </kill>
+    <end name="end"/>
+</workflow-app>
