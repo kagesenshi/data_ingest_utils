@@ -122,8 +122,11 @@ def falcon_process(properties):
     return job
 
 def main():
+    argparser = argparse.ArgumentParser(description='Generate oozie and falcon configurations for ingestion')
+    argparser.add_argument('profilerjson', help='JSON output from oracle_profiler.py')
+    opts = argparser.parse_args()
     hive_create = []
-    for ds in json.loads(open(sys.argv[1]).read()):
+    for ds in json.loads(open(opts.profilerjson).read()):
         for table in ds['tables']:
             mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
             if mapper > 20:
