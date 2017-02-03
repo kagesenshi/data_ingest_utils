@@ -3,11 +3,7 @@
     <parameters>
         <property>
             <name>prefix</name>
-            <value>/user/trace/development-izhar/source/</value>
-        </property>
-        <property>
-            <name>flat_prefix</name>
-            <value>/user/trace/development-izhar/source_flat/</value>
+            <value>/user/trace/development/</value>
         </property>
         <property>
             <name>stagingdb</name>
@@ -39,8 +35,8 @@
     <action name="removeExisting">
         <fs>
             <name-node>${nameNode}</name-node>
-            <delete path="${prefix}/${source_name}/${schema}_${table}/INCREMENT/"></delete>
-            <delete path="${prefix}/${source_name}/${schema}_${table}/RECONCILED/"></delete>
+            <delete path="${prefix}/source/${source_name}/${schema}_${table}/INCREMENT/"></delete>
+            <delete path="${prefix}/source/${source_name}/${schema}_${table}/RECONCILED/"></delete>
         </fs>
         <ok to="sqoop"/>
         <error to="kill"/>

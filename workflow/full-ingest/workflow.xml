@@ -3,11 +3,7 @@
     <parameters>
         <property>
             <name>prefix</name>
-            <value>/user/trace/development-izhar/source</value>
-        </property>
-        <property>
-            <name>flat_prefix</name>
-            <value>/user/trace/development-izhar/source_flat/</value>
+            <value>/user/trace/development</value>
         </property>
         <property>
             <name>stagingdb</name>
@@ -19,7 +15,7 @@
         </property>
         <property>
             <name>outputdir</name>
-            <value>${prefix}/${source_name}/${schema}_${table}</value>
+            <value>${prefix}/source/${source_name}/${schema}_${table}</value>
         </property>
         <property>
             <name>staging_tbl</name>
@@ -144,7 +140,7 @@ CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_FLAT (
   WITH SERDEPROPERTIES (
       'field.delim'='${field_delimiter}'
   )
-  LOCATION '${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['DATE']}'
+  LOCATION '${prefix}/source_flat/${source_name}/${schema}_${table}/${wf:actionData('getValues')['DATE']}'
   TBLPROPERTIES('serialization.null.format'='');
     
 INSERT OVERWRITE TABLE ${staging_tbl}_FLAT
@@ -160,7 +156,7 @@ FROM ${staging_tbl}_CURRENT;
     <action name="markFlatDataReady">
         <fs>
             <name-node>${nameNode}</name-node>
-            <touchz path="${flat_prefix}/${source_name}/${schema}_${table}/${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+            <touchz path="${prefix}/source_flat/${source_name}/${schema}_${table}/${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
         </fs>
         <ok to="endJoin"/>
         <error to="kill"/>
