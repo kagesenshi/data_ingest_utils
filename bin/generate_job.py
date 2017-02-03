@@ -49,6 +49,7 @@ oozie_properties = OrderedDict([
     ('user.name','trace'),
     ('mapreduce.job.user.name','trace'),
     ('queueName','ingestion'),
+    ('prefix', None),
     ('jdbc_uri','jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
     ('username', None),
     ('password',None),
@@ -88,10 +89,10 @@ JAVA_TYPE_MAP = {
 
 STAGES = {
    'dev': {
-      'wfbasepath': '/user/trace/development/workflows/'
+      'prefix': '/user/trace/development/',
    },
    'prod': {
-      'wfbasepath': '/user/trace/workflows/'
+      'prefix': '/user/trace/'
    }
 }
 
@@ -182,7 +183,8 @@ def main():
             for stage, conf in STAGES.items():
                 for ingest in ['full-ingest', 'incremental-ingest', 'incremental-ingest-frozen']:
                     opts = params.copy()
-                    opts['wfpath'] = os.path.join(conf['wfbasepath'],ingest)
+                    opts['wfpath'] = os.path.join(conf['prefix'],'workflows', ingest)
+                    opts['prefix'] = conf['prefix']
                     filename = '%(source_name)s-%(schema)s-%(table)s.properties' % opts
                     storedir = 'artifacts/%s-oozie-%s' % (stage, ingest)
                     if 'increment' in ingest and not 'increment' in opts['workflow']:
