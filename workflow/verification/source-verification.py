@@ -12,27 +12,25 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-t','--table', dest='table', required=True)
     parser.add_argument('-s','--schema', dest='schema', required=True)
-    parser.add_argument('-b','--split-by', dest='split', required=True)
+    parser.add_argument('-l','--column', dest='column', required=True)
     parser.add_argument('-c','--connection', dest='connection', required=True)
 
     args = parser.parse_args()
     
-    def now():
-        return datetime.now().isoformat()
-    
-    try:
-        con = ora.connect(args.connection)
-        con_ora = con.cursor()
-        ora_result = con_ora.execute("select min(%s) as min_oracle, max(%s) as max_oracle, count(*) as total_oracle from %s.%s" % (args.split,args.split,args.schema,args.table))
-        result = ora_result.fetchall()
-        for item in result:
-            print 'Min Oracle: %s' %  item[0]
-            print 'Max Oracle: %s' %  item[1]
-            print 'Total Oracle: %s' %  item[2]
-        con_ora.close()
-        con.close()
-    except Exception, e:
-        print e
+    con = ora.connect(args.connection)
+    cur = con.cursor()
+    result = cur.execute("""
+         select 
+              min(%s) as vmin, 
+              max(%s) as vmax,
+              count(*) as total
+         from %s.%s""" % (args.column,args.column,args.schema,args.table))
+    for item in result.fetchall():
+        print 'MIN=%s' %  item[0]
+        print 'MAX=%s' %  item[1]
+        print 'TOTAL=%s' %  item[2]
+    cur.close()
+    con.close()
 
 if __name__ == '__main__':
     main()
