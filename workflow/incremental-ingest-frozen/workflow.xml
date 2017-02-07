@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<workflow-app xmlns="uri:oozie:workflow:0.5" name="DEV-TEST-INCREMENT-WF-${source_name}-${schema}-${table}">
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="INCREMENT-${source_name}-${schema}-${table}">
     <parameters>
         <property>
             <name>prefix</name>
@@ -8,6 +8,10 @@
         <property>
             <name>stagingdb</name>
             <value>staging_dev</value>
+        </property>
+        <property>
+            <name>outputdir</name>
+            <value>${prefix}/source/${source_name}/${schema}_${table}</value>
         </property>
     </parameters>
     <start to="getValues"/>
@@ -19,7 +23,7 @@
             <exec>python</exec>
             <argument>hive_helper.py</argument>
             <argument>-p</argument>
-            <argument>${prefix}/${source_name}/${schema}_${table}/CURRENT</argument>
+            <argument>${outputdir}/CURRENT</argument>
             <argument>-c</argument>
             <argument>${check_column}</argument>
             <argument>-d</argument>
@@ -35,8 +39,8 @@
     <action name="removeExisting">
         <fs>
             <name-node>${nameNode}</name-node>
-            <delete path="${prefix}/source/${source_name}/${schema}_${table}/INCREMENT/"></delete>
-            <delete path="${prefix}/source/${source_name}/${schema}_${table}/RECONCILED/"></delete>
+            <delete path="${outputdir}/INCREMENT/"></delete>
+            <delete path="${outputdir}/RECONCILED/"></delete>
         </fs>
         <ok to="sqoop"/>
         <error to="kill"/>
@@ -48,23 +52,24 @@
             <job-xml>conf/oraoop-site.xml</job-xml>
             <arg>import</arg>
             <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
-            <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
-            <arg>-Doraoop.import.consistent.read=true</arg>
+<!--            <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
+            <arg>-Doraoop.import.consistent.read=true</arg> -->
             <arg>--connect</arg>
             <arg>${jdbc_uri}</arg>
             <arg>-m</arg>
-            <arg>${mapper}</arg>
+            <arg>1</arg>
+            <!-- <arg>${mapper}</arg> -->
             <arg>--table</arg>
             <arg>${schema}.${table}</arg>
             <arg>--target-dir</arg>
-            <arg>${prefix}/${source_name}/${schema}_${table}/INCREMENT</arg>
+            <arg>${outputdir}/INCREMENT</arg>
             <arg>--delete-target-dir</arg>
             <arg>--username</arg>
             <arg>${username}</arg>
             <arg>--password</arg>
             <arg>${password}</arg>
             <arg>--as-parquetfile</arg>
-            <arg>-direct</arg>
+            <!-- <arg>-direct</arg> -->
             <arg>--map-column-java</arg>
             <arg>${columns_java}</arg>
             <arg>--where</arg>
@@ -81,13 +86,16 @@
             <name-node>${nameNode}</name-node>
             <query>
 use inctest;
+
+DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_CURRENT;
 CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
     ${columns_create}
-) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/CURRENT';
+) STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
 
+DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_INCREMENT;
 CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
     ${columns_create}
-) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/INCREMENT';
+) STORED AS PARQUET LOCATION '${outputdir}/INCREMENT';
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
@@ -103,9 +111,10 @@ JOIN
         GROUP BY ${merge_column}) s
     ON t1.${merge_column} = s.${merge_column} AND t1.${check_column} = s.max_value;
 
+DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
 CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED (
     ${columns_create}
-) STORED AS PARQUET LOCATION '${prefix}/${source_name}/${schema}_${table}/RECONCILED';
+) STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
 
 INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
 SELECT * FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;

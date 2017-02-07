@@ -48,12 +48,16 @@ oozie_properties = OrderedDict([
     ('oozie.use.system.libpath','true'),
     ('user.name','trace'),
     ('mapreduce.job.user.name','trace'),
+    ('oozie.launcher.mapreduce.job.queue.name', 'oozie'),
+    ('mapred.job.queue.name', 'ingestion'),
     ('queueName','ingestion'),
     ('prefix', None),
     ('jdbc_uri','jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
     ('username', None),
     ('password',None),
     ('source_name', None),
+    ('direct', None),
+    ('targetdb', None),
     ('schema', None),
     ('table', None),
     ('mapper', None),
@@ -90,9 +94,11 @@ JAVA_TYPE_MAP = {
 STAGES = {
    'dev': {
       'prefix': '/user/trace/development/',
+      'targetdb': '%(source_name)s_DEV',
    },
    'prod': {
-      'prefix': '/user/trace/'
+      'prefix': '/user/trace/',
+      'targetdb': '%(source_name)s',
    }
 }
 
@@ -153,7 +159,10 @@ def main():
             if table['merge_key'] and table['check_column']:
                 workflow = 'incremental-ingest'
             else:
-                workflow = 'full-ingest'
+                if ds['direct']:
+                    workflow = 'full-ingest'
+                else:
+                    workflow = 'full-ingest-nodirect'
             params = {
                 'mapper': mapper, 
                 'source_name': source_name,
@@ -173,6 +182,7 @@ def main():
                 'workflow': workflow,
                 'merge_column': table['merge_key'],
                 'check_column': table['check_column'],
+                'direct': ds['direct']
             }
    
             if params['source_name'] == 'CPC' and params['schema'] == 'SIEBEL' and params['table'] == 'S_CONTACT':
@@ -183,8 +193,13 @@ def main():
             for stage, conf in STAGES.items():
                 for ingest in ['full-ingest', 'incremental-ingest', 'incremental-ingest-frozen']:
                     opts = params.copy()
-                    opts['wfpath'] = os.path.join(conf['prefix'],'workflows', ingest)
+                    if opts['direct']:
+                       full_ingest_wf = 'full-ingest'
+                    else:
+                       full_ingest_wf = 'full-ingest-nodirect'
+                    opts['wfpath'] = os.path.join(conf['prefix'],'workflows', full_ingest_wf)
                     opts['prefix'] = conf['prefix']
+                    opts['targetdb'] = conf['targetdb'] % params
                     filename = '%(source_name)s-%(schema)s-%(table)s.properties' % opts
                     storedir = 'artifacts/%s-oozie-%s' % (stage, ingest)
                     if 'increment' in ingest and not 'increment' in opts['workflow']:

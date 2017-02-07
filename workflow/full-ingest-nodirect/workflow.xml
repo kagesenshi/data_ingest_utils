@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<workflow-app xmlns="uri:oozie:workflow:0.5" name="INCREMENT-${source_name}-${schema}-${table}">
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="FULL-${source_name}-${schema}-${table}">
     <parameters>
         <property>
             <name>prefix</name>
-            <value>/user/trace/development/</value>
+            <value>/user/trace/development</value>
         </property>
         <property>
             <name>stagingdb</name>
@@ -15,7 +15,7 @@
         </property>
         <property>
             <name>outputdir</name>
-            <value>${prefix}/source/${source_name}/${schema}_${table}/</value>
+            <value>${prefix}/source/${source_name}/${schema}_${table}</value>
         </property>
         <property>
             <name>staging_tbl</name>
@@ -28,16 +28,15 @@
             xmlns="uri:oozie:shell-action:0.3">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <exec>python</exec>
-            <argument>hive_helper.py</argument>
-            <argument>-p</argument>
-            <argument>${outputdir}/CURRENT</argument>
-            <argument>-c</argument>
-            <argument>${check_column}</argument>
-            <argument>-d</argument>
-            <argument>${columns_create}</argument>
-            <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
-            <file>hive_helper.py</file>
+            <argument>date_helper.py</argument>
+            <file>date_helper.py</file>
             <capture-output/>
         </shell>
         <ok to="removeExisting"/>
@@ -47,8 +46,7 @@
     <action name="removeExisting">
         <fs>
             <name-node>${nameNode}</name-node>
-            <delete path="${outputdir}/INCREMENT/"></delete>
-            <delete path="${outputdir}/RECONCILED/"></delete>
+            <delete path="${outputdir}/CURRENT/"></delete>
         </fs>
         <ok to="sqoop"/>
         <error to="kill"/>
@@ -58,99 +56,40 @@
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
             <job-xml>conf/oraoop-site.xml</job-xml>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+               <property>
+                    <name>queueName</name>
+                    <value>sqoop</value>
+               </property>
+            </configuration>
             <arg>import</arg>
             <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
-            <!-- <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
-            <arg>-Doraoop.import.consistent.read=true</arg> -->
+            <arg>-Dmapreduce.job.queuename=sqoop</arg>
             <arg>--connect</arg>
             <arg>${jdbc_uri}</arg>
             <arg>-m</arg>
             <arg>1</arg>
-            <!-- <arg>${mapper}</arg>-->
             <arg>--table</arg>
             <arg>${schema}.${table}</arg>
             <arg>--target-dir</arg>
-            <arg>${outputdir}/INCREMENT</arg>
+            <arg>${outputdir}/CURRENT</arg>
             <arg>--delete-target-dir</arg>
             <arg>--username</arg>
             <arg>${username}</arg>
             <arg>--password</arg>
             <arg>${password}</arg>
             <arg>--as-parquetfile</arg>
-            <!-- <arg>-direct</arg> -->
             <arg>--map-column-java</arg>
             <arg>${columns_java}</arg>
-            <arg>--where</arg>
-            <arg>${check_column} &gt; TO_TIMESTAMP('${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}', 'YYYY-MM-DD HH24:MI:SS.FF')</arg>
         </sqoop>
-        <ok to="hiveReconcile"/>
-        <error to="kill"/>
-    </action>
-
-    <action name="hiveReconcile">
-        <hive
-            xmlns="uri:oozie:hive-action:0.6">
-            <job-tracker>${resourceManager}</job-tracker>
-            <name-node>${nameNode}</name-node>
-            <query>
-CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_CURRENT (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
-
-CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_INCREMENT (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/INCREMENT';
-
-DROP VIEW IF EXISTS ${staging_tbl}_RECONCILE_VIEW;
-CREATE VIEW ${staging_tbl}_RECONCILE_VIEW AS
-SELECT t1.* FROM
-    (SELECT * FROM ${staging_tbl}_CURRENT
-    UNION ALL
-    SELECT * FROM ${staging_tbl}_INCREMENT) t1
-JOIN
-    (SELECT ${merge_column}, max(${check_column}) max_value FROM
-        (SELECT * FROM ${staging_tbl}_CURRENT
-        UNION ALL
-        SELECT * FROM ${staging_tbl}_INCREMENT) t2
-        GROUP BY ${merge_column}) s
-    ON t1.${merge_column} = s.${merge_column} AND t1.${check_column} = s.max_value;
-
-CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_RECONCILED (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
-
-INSERT OVERWRITE TABLE ${staging_tbl}_RECONCILED
-SELECT * FROM ${staging_tbl}_RECONCILE_VIEW;
-
-DROP VIEW IF EXISTS ${staging_tbl}_RECONCILE_VIEW;
-            </query>
-        </hive>
-        <ok to="copyAvroMetadata"/>
-        <error to="kill"/>
-    </action>
-    <action name="copyAvroMetadata">
-        <distcp
-            xmlns="uri:oozie:distcp-action:0.2">
-            <job-tracker>${resourceManager}</job-tracker>
-            <name-node>${nameNode}</name-node>
-            <arg>${nameNode}/${outputdir}/INCREMENT/.metadata</arg>
-            <arg>${nameNode}/${outputdir}/RECONCILED/</arg>
-        </distcp>
-        <ok to="moveToCurrent"/>
-        <error to="kill"/>
-    </action>
-    <action name="moveToCurrent">
-        <fs>
-            <name-node>${nameNode}</name-node>
-            <delete path="${nameNode}/${outputdir}/PREVIOUS"></delete>
-            <move source="${nameNode}/${outputdir}/CURRENT" 
-                    target="${nameNode}/${outputdir}/PREVIOUS"></move>
-            <move source="${nameNode}/${outputdir}/RECONCILED" 
-                    target="${nameNode}/${outputdir}/CURRENT"></move>
-        </fs>
         <ok to="prepDistcp"/>
         <error to="kill"/>
     </action>
+
     <action name="prepDistcp">
         <fs>
             <name-node>${nameNode}</name-node>
@@ -164,13 +103,18 @@ DROP VIEW IF EXISTS ${staging_tbl}_RECONCILE_VIEW;
             xmlns="uri:oozie:distcp-action:0.2">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <arg>${nameNode}/${outputdir}/CURRENT/</arg>
             <arg>${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
         </distcp>
         <ok to="markRawDataReady"/>
         <error to="kill"/>
     </action>
-
     <action name="markRawDataReady">
         <fs>
             <name-node>${nameNode}</name-node>
@@ -179,14 +123,18 @@ DROP VIEW IF EXISTS ${staging_tbl}_RECONCILE_VIEW;
         <ok to="createExternalTable"/>
         <error to="kill"/>
     </action>
-
     <action name="createExternalTable">
         <hive
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <query>
-CREATE DATABASE IF NOT EXISTS ${stagingdb};
 DROP TABLE IF EXISTS ${stagingdb}.${staging_tbl};
 CREATE EXTERNAL TABLE ${stagingdb}.${staging_tbl} (
     ${columns_create}
@@ -201,12 +149,17 @@ CREATE EXTERNAL TABLE ${stagingdb}.${staging_tbl} (
         <path start="exportFlat"/>
         <path start="exportORC"/>
     </fork>
-
     <action name="exportFlat">
         <hive
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <query>
 SET hive.exec.compress.output=false;
 ADD JAR ${nameNode}/user/oozie/share/lib/lib_20161221211109/hive/hive-contrib-1.2.1000.2.5.3.0-37.jar;
@@ -225,7 +178,7 @@ CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_FLAT (
   TBLPROPERTIES('serialization.null.format'='');
     
 INSERT OVERWRITE TABLE ${staging_tbl}_FLAT
-SELECT
+SELECT 
     ${columns_flat}
 FROM ${staging_tbl}_CURRENT;
             </query>
@@ -243,12 +196,17 @@ FROM ${staging_tbl}_CURRENT;
         <error to="kill"/>
     </action>
 
-
     <action name="exportORC">
         <hive
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <query>
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 
@@ -259,9 +217,9 @@ CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
 CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table} (
     ${columns_create}
 ) STORED AS ORC;
-
+    
 INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
-SELECT
+SELECT 
     ${columns_flat}
 FROM ${targetdb}.${schema}_${table}_CURRENT;
             </query>
@@ -280,8 +238,6 @@ FROM ${targetdb}.${schema}_${table}_CURRENT;
     </action>
 
     <join name="endJoin" to="end"/>
-
-
     <kill name="kill">
         <message>${wf:errorMessage(wf:lastErrorNode())}</message>
     </kill>

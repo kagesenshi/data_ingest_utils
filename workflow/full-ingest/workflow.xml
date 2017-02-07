@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<workflow-app xmlns="uri:oozie:workflow:0.5" name="FULL-INGEST-DIRECT-WF-${source_name}-${schema}-${table}">
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="FULL-${source_name}-${schema}-${table}">
     <parameters>
         <property>
             <name>prefix</name>
@@ -20,6 +20,7 @@
         <property>
             <name>staging_tbl</name>
             <value>${source_name}_${schema}_${table}</value>
+        </property>
     </parameters>
     <start to="getValues"/>
     <action name="getValues">
@@ -27,6 +28,12 @@
             xmlns="uri:oozie:shell-action:0.3">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <exec>python</exec>
             <argument>date_helper.py</argument>
             <file>date_helper.py</file>
@@ -49,9 +56,22 @@
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
             <job-xml>conf/oraoop-site.xml</job-xml>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+               <property>
+                    <name>queueName</name>
+                    <value>sqoop</value>
+               </property>
+
+            </configuration>
             <arg>import</arg>
             <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
-            <arg>-Doraoop.import.consistent.read=true</arg>
+            <arg>-Doraoop.jdbc.url.verbatim=true</arg>
+            <!--<arg>-Doraoop.import.consistent.read=true</arg>-->
+            <arg>-Dmapreduce.job.queuename=sqoop</arg>
             <arg>--connect</arg>
             <arg>${jdbc_uri}</arg>
             <arg>-m</arg>
@@ -87,6 +107,12 @@
             xmlns="uri:oozie:distcp-action:0.2">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <arg>${nameNode}/${outputdir}/CURRENT/</arg>
             <arg>${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
         </distcp>
@@ -106,6 +132,12 @@
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <query>
 DROP TABLE IF EXISTS ${stagingdb}.${staging_tbl};
 CREATE EXTERNAL TABLE ${stagingdb}.${staging_tbl} (
@@ -113,7 +145,7 @@ CREATE EXTERNAL TABLE ${stagingdb}.${staging_tbl} (
 ) STORED AS PARQUET LOCATION '${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}';
             </query>
         </hive>
-        <ok to="exportFlat"/>
+        <ok to="exportFork"/>
         <error to="kill"/>
     </action>
 
@@ -126,6 +158,12 @@ CREATE EXTERNAL TABLE ${stagingdb}.${staging_tbl} (
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <query>
 SET hive.exec.compress.output=false;
 ADD JAR ${nameNode}/user/oozie/share/lib/lib_20161221211109/hive/hive-contrib-1.2.1000.2.5.3.0-37.jar;
@@ -167,8 +205,14 @@ FROM ${staging_tbl}_CURRENT;
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+               <property>
+                    <name>oozie.launcher.mapreduce.job.queue.name</name>
+                    <value>oozie</value>
+               </property>
+            </configuration>
             <query>
-CREATE DATABASE IF NOT EXISTS ${source_name};
+CREATE DATABASE IF NOT EXISTS ${targetdb};
 
 CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
     ${columns_create}

@@ -1,3 +1,5 @@
+#!/usr/bin/env python 
+
 import cx_Oracle as ora
 import sys
 import csv
@@ -64,6 +66,7 @@ class OracleProfiler(object):
             self.result['tables'].append(self._profile_table(cur, t))
 
         self.result['profiling_metadata']['end_dt'] = now()
+        self.result['direct'] = self._get_directpermission(cur)
         con.close()
 
     def _get_tables(self, cursor):
@@ -270,6 +273,16 @@ class OracleProfiler(object):
             uk.append(col[1])
         return uk
 
+    def _get_directpermission(self, cursor):
+        _get_directpermission_sql = '''
+            SELECT * FROM V$INSTANCE WHERE ROWNUM < 2
+        '''
+        try:
+           res = cursor.execute(_get_directpermission_sql)
+           for col in res:
+               return True
+        except:
+            return False
 
     def test_connection(self):
         print '(%s) ANALYZING %s %s' % (now(), self.ds['name'], self.connstr)
