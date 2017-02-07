@@ -32,7 +32,7 @@ class OpenProject(object):
 
     def info(self):
         res = self.get('/projects/%s' % self.project)
-        pprint(res)
+        return res
 
     def work_package_schema(self):
         res = self.post('/projects/%s/work_packages/form' % self.project)
@@ -73,10 +73,18 @@ class OpenProject(object):
                 data=payload)
         return res
 
-
-def project():
+@argh.arg('-j', '--json', help='Print JSON schema', action='store_true',
+        default=False)
+def project(**kwargs):
     p = OpenProject(ENDPOINT, PROJECT)
-    p.info()
+    res = p.info()
+    if kwargs['json']:
+        pprint(res)
+    else:
+        print '   Id:    %s' % res['identifier']
+        print '   Title: %s' % res['name']
+        print '   Type:  %s' % res['type']
+        print '   Desc:  %s' % res['description']
 
 @argh.arg('-j', '--json', help='Print JSON schema', action='store_true',
         default=False)
