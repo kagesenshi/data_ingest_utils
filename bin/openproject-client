@@ -6,6 +6,8 @@ from getpass import getpass
 from pprint import pprint
 import base64
 from dateutil.parser import parse as parse_date
+import json
+from urlparse import urlparse
 
 ENDPOINT='http://openproject.kagesenshi.org/openproject/api/v3'
 PROJECT='tm-trace'
@@ -21,17 +23,26 @@ class OpenProject(object):
     def get(self, path, data=None):
         res = requests.get(self.endpoint + path, data=data, auth=self.auth)
         if not res.ok:
-            print res.url
+            raise Exception('%s %s' % (res.url, str(res)))
         return res.json()
 
     def post(self, path, data=None):
-        res = requests.post(self.endpoint + path, data=data, auth=self.auth)
+        params = {}
+        if data:
+            params['json'] = data
+        res = requests.post(self.endpoint + path, auth=self.auth, **params)
         if not res.ok:
-            print res.url
+            if res.status_code == 422:
+                return res.json()
+            raise Exception("%s %s" % (res.url, str(res)))
         return res.json()
 
     def info(self):
         res = self.get('/projects/%s' % self.project)
+        return res
+
+    def work_package_info(self, identifier):
+        res = self.get('/work_packages/%s' % identifier)
         return res
 
     def work_package_schema(self):
@@ -42,26 +53,26 @@ class OpenProject(object):
             category=None, startDate=None, dueDate=None):
         schema = self.work_package_schema()
         payload = schema['_embedded']['payload']
-        found_type = False
-        for allowed in schema['_embedded']['schema']['type']['_embedded']['allowedValues']:
-            if type_.upper() == allowed['name'].upper():
-                payload['_links']['type'] = allowed['_links']['self']
-                found_type = True
-                break
-        if not found_type:
-            raise ValueError('No such type (%s)' % type_)
 
-        if category:
-            found_category = False
-            for allowed in (schema['_embedded']
-                    ['schema']['category']['_embedded']['allowedValues']):
-                if category.upper() == allowed['name'].upper():
-                    payload['_links']['category'] = allowed['_links']['self']
-                    found_category = True
+        def validateSelect(value, sfield):
+            if value is None:
+                return
+            found = False
+            for allowed in schema['_embedded']['schema'][sfield]['_embedded']['allowedValues']:
+                if value.upper() == allowed['name'].upper():
+                    payload['_links']['type'] = allowed['_links']['self']
+                    found = True
                     break
-            if not found_category:
-                raise ValueError('No such category (%s)' % category)
+            if not found:
+                raise ValueError('No such %s (%s)' % (sfield, value))
+
+        validateSelect(type_, 'type')
+        validateSelect(category, 'category')
         payload['subject'] = subject
+        if parentId:
+            payload['parentId'] = parentId
+            parent = self.work_package_info(parentId)
+            payload['_links']['parent'] = parent['_links']['self']
         payload['startDate'] = (
                 startDate.strftime('%Y-%m-%d') if startDate else None)
         payload['dueDate'] = (
@@ -110,9 +121,8 @@ def schema(**kwargs):
 
 
 @argh.arg('subject', help='Title of the ticket')
-@argh.arg('-t','--type', help='Ticket type', choices=['Task', 'Milestone', 'Phase',
-    'Feature', 'Epic', 'User story', 'Bug', 'Issue' ], default='Task')
-@argh.arg('-p','--print-payload', help='Only print payload', default=False,
+@argh.arg('-t','--type', help='Ticket type', default='Task')
+@argh.arg('-p','--post', help='Submit payload instead of just printing', default=False,
         action='store_true')
 @argh.arg('-c', '--category', help='Category', default=None)
 @argh.arg('-g', '--parent', help='Parent', default=None)
@@ -125,10 +135,19 @@ def create(subject, **kwargs):
             parentId=kwargs['parent'], category=kwargs['category'],
             startDate=get_date(kwargs['start_date']),
             dueDate=get_date(kwargs['due_date']))
-    if kwargs['print_payload']:
+    if not kwargs['post']:
         pprint(pl)
-    else:
-        pass
+        return
+
+    res = p.create_work_package(pl)
+    if res['_type'] == 'Error':
+        print res['message']
+        if res.get('_embedded', {}).get('errors', {}):
+            for e in res['_embedded']['errors']:
+                print '\t', e['message']
+        return
+
+    print "Created %s" % res['_links']['self']['href']
 
 parser = argh.ArghParser()
 parser.add_commands([project, schema, create])
