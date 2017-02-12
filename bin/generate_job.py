@@ -5,6 +5,7 @@ import json
 import argparse
 from collections import OrderedDict
 import os
+import shutil
 
 hive_create_template = '''
 drop table if exists staging.%(source_name)s_%(schema)s_%(table)s;
@@ -58,6 +59,7 @@ oozie_properties = OrderedDict([
     ('source_name', None),
     ('direct', None),
     ('targetdb', None),
+    ('stagingdb', None),
     ('schema', None),
     ('table', None),
     ('mapper', None),
@@ -96,6 +98,10 @@ STAGES = {
       'prefix': '/user/trace/development/',
       'targetdb': '%(source_name)s_DEV',
    },
+   'test': {
+      'prefix': '/user/trace/test/',
+      'targetdb': '%(source_name)s',
+   },
    'prod': {
       'prefix': '/user/trace/',
       'targetdb': '%(source_name)s',
@@ -133,6 +139,8 @@ def main():
     argparser.add_argument('profilerjson', help='JSON output from oracle_profiler.py')
     opts = argparser.parse_args()
     hive_create = []
+    if os.path.exists('artifacts/'):
+        shutil.rmtree('artifacts/')
     for ds in json.loads(open(opts.profilerjson).read()):
         for table in ds['tables']:
             mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
@@ -188,28 +196,38 @@ def main():
             if params['source_name'] == 'CPC' and params['schema'] == 'SIEBEL' and params['table'] == 'S_CONTACT':
                 params['field_delimiter'] = '^~'
 
-            # generate full ingest scripts
 
             for stage, conf in STAGES.items():
-                for ingest in ['full-ingest', 'incremental-ingest', 'incremental-ingest-frozen']:
+                for ingest in ['full-ingest', 'full-ingest-sqooponly', 'incremental-ingest', 'incremental-ingest-frozen']:
                     opts = params.copy()
-                    if opts['direct']:
-                       full_ingest_wf = 'full-ingest'
-                    else:
-                       full_ingest_wf = 'full-ingest-nodirect'
-                    opts['wfpath'] = os.path.join(conf['prefix'],'workflows', full_ingest_wf)
+
+                    # Oozie
+                  
+                    ingest_wf = ingest
+                    if not opts['direct'] and ingest == 'full-ingest':
+                       ingest_wf = ingest + '-nodirect'
+
+                    opts['wfpath'] = os.path.join(conf['prefix'],'workflows', ingest_wf)
                     opts['prefix'] = conf['prefix']
                     opts['targetdb'] = conf['targetdb'] % params
+                    if stage == 'prod':
+                       opts['stagingdb'] = 'staging'
+                    else:
+                       opts['stagingdb'] = 'staging_dev'
                     filename = '%(source_name)s-%(schema)s-%(table)s.properties' % opts
                     storedir = 'artifacts/%s-oozie-%s' % (stage, ingest)
-                    if 'increment' in ingest and not 'increment' in opts['workflow']:
-                       continue
+
+                    # sources without merge_column and check_column cant be ingested incremental
+                    if 'incremental' in ingest and (not opts['merge_column']) and (not opts['check_column']):
+                        continue
+
                     if not os.path.exists(storedir):
                         os.makedirs(storedir)
                     with open('%s/%s' % (storedir, filename), 'w') as f:
                         job = '\n'.join(['%s=%s' % (k,v) for k,v in oozie_config(opts).items()])
                         f.write(job)
-    
+
+                    # Falcon
                     filename = '%(source_name)s-%(schema)s-%(table)s.xml' % opts
                     storedir = 'artifacts/%s-falconprocess-%s' % (stage, ingest)
                     if not os.path.exists(storedir): 
