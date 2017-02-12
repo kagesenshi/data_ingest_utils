@@ -89,8 +89,6 @@ JAVA_TYPE_MAP = {
     'NUMBER': 'String',
     'CHAR': 'String',
     'LONG': 'Long',
-    'CLOB': 'Bytes',
-    'RAW': 'Bytes'
 }
 
 STAGES = {
