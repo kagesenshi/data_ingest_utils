@@ -101,6 +101,8 @@ class OracleProfiler(object):
         merge_key = self._get_merge_key(columns, primary_keys, unique_keys, unique_indexes)
         check_column = self._get_check_column(indexed_columns, columns)
         return {
+            'source': self.ds['name'].replace(' ','_'),
+            'schema': self.ds['schema'],
             'table': table_name,
             'columns': columns,
             'primary_keys': primary_keys,
@@ -121,7 +123,7 @@ class OracleProfiler(object):
         for col in columns:
             if col['field'] == 'DB_LAST_UPD':
                 continue
-            for kw in ['LAST_UPD', 'MOD_T']:
+            for kw in ['LAST_UPD', 'MOD_T', 'UPDATED_TIME']:
                 if (kw in col['field'] and col['field'] in idxed
                             and col['type'] in ['DATE','NUMBER']):
 
