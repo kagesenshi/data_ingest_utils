@@ -60,13 +60,12 @@
             <job-xml>conf/oraoop-site.xml</job-xml>
             <arg>import</arg>
             <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
-            <!-- <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
-            <arg>-Doraoop.import.consistent.read=true</arg> -->
+            <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
+            <!-- <arg>-Doraoop.import.consistent.read=true</arg> -->
             <arg>--connect</arg>
             <arg>${jdbc_uri}</arg>
             <arg>-m</arg>
-            <arg>1</arg>
-            <!-- <arg>${mapper}</arg>-->
+            <arg>${mapper}</arg>
             <arg>--table</arg>
             <arg>${schema}.${table}</arg>
             <arg>--target-dir</arg>
@@ -77,11 +76,11 @@
             <arg>--password</arg>
             <arg>${password}</arg>
             <arg>--as-parquetfile</arg>
-            <!-- <arg>-direct</arg> -->
+            <arg>--direct</arg>
             <arg>--map-column-java</arg>
             <arg>${columns_java}</arg>
             <arg>--where</arg>
-            <arg>${check_column} &gt; TO_TIMESTAMP('${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}', 'YYYY-MM-DD HH24:MI:SS.FF')</arg>
+            <arg>${check_column} &gt; ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}</arg>
         </sqoop>
         <ok to="hiveReconcile"/>
         <error to="kill"/>
@@ -93,6 +92,8 @@
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
             <query>
+SET hive.auto.convert.join=false;
+
 CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_CURRENT (
     ${columns_create}
 ) STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
@@ -103,7 +104,7 @@ CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_INCREMENT (
 
 DROP VIEW IF EXISTS ${staging_tbl}_RECONCILE_VIEW;
 CREATE VIEW ${staging_tbl}_RECONCILE_VIEW AS
-SELECT t1.* FROM
+SELECT /*+ MAPJOIN(s) */ t1.* FROM
     (SELECT * FROM ${staging_tbl}_CURRENT
     UNION ALL
     SELECT * FROM ${staging_tbl}_INCREMENT) t1
@@ -267,10 +268,10 @@ CREATE TEMPORARY EXTERNAL TABLE ${staging_tbl}_INCREMENT_FLAT (
   LOCATION '${prefix}/source_flat_increment/${source_name}/${schema}_${table}/${wf:actionData('getValues')['DATE']}'
   TBLPROPERTIES('serialization.null.format'='');
     
-INSERT OVERWRITE TABLE ${staging_tbl}_FLAT
+INSERT OVERWRITE TABLE ${staging_tbl}_INCREMENT_FLAT
 SELECT
     ${columns_flat}
-FROM ${staging_tbl}_CURRENT;
+FROM ${staging_tbl}_INCREMENT;
             </query>
         </hive>
         <ok to="markIncrementFlatDataReady"/>
@@ -280,6 +281,7 @@ FROM ${staging_tbl}_CURRENT;
     <action name="markIncrementFlatDataReady">
         <fs>
             <name-node>${nameNode}</name-node>
+            <mkdir path="${prefix}/source_increment/${source_name}/${schema}_${table}/"></mkdir>
             <move source="${prefix}/source/${source_name}/${schema}_${table}/INCREMENT"
 	          target="${prefix}/source_increment/${source_name}/${schema}_${table}/increment_date=${wf:actionData('getValues')['DATE']}"></move>
             <touchz path="${prefix}/source_increment/${source_name}/${schema}_${table}/increment_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
@@ -288,8 +290,6 @@ FROM ${staging_tbl}_CURRENT;
         <ok to="endJoin"/>
         <error to="kill"/>
     </action>
-
-
 
     <action name="exportORC">
         <hive

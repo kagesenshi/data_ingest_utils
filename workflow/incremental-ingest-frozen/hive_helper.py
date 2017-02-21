@@ -7,6 +7,7 @@ from datetime import datetime
 import time
 import shutil
 import tempfile
+import re
 
 SCRIPT='''
 create temporary external table default.%(tablename)s (
@@ -55,8 +56,13 @@ def main():
         sys.stderr.write(p.stderr.read())
         sys.exit(1)
 
+    check_column_value = p.stdout.read().strip()
+    if re.match(r'\d+-\d+-\d+ \d+:\d+:\d+\.\d+', check_column_value):
+       check_column_value = (
+           "TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')" % check_column_value
+       )
     out = {
-      'CHECK_COLUMN_VALUE': p.stdout.read().strip(),
+      'CHECK_COLUMN_VALUE': check_column_value,
       'YEAR': now.strftime('%Y'),
       'MONTH': now.strftime('%m'),
       'DAY': now.strftime('%d'),

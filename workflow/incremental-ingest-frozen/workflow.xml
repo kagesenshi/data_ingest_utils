@@ -52,13 +52,12 @@
             <job-xml>conf/oraoop-site.xml</job-xml>
             <arg>import</arg>
             <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
-<!--            <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
-            <arg>-Doraoop.import.consistent.read=true</arg> -->
+            <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
+<!--            <arg>-Doraoop.import.consistent.read=true</arg>-->
             <arg>--connect</arg>
             <arg>${jdbc_uri}</arg>
             <arg>-m</arg>
-            <arg>1</arg>
-            <!-- <arg>${mapper}</arg> -->
+            <arg>${mapper}</arg>
             <arg>--table</arg>
             <arg>${schema}.${table}</arg>
             <arg>--target-dir</arg>
@@ -69,11 +68,11 @@
             <arg>--password</arg>
             <arg>${password}</arg>
             <arg>--as-parquetfile</arg>
-            <!-- <arg>-direct</arg> -->
+            <arg>--direct</arg>
             <arg>--map-column-java</arg>
             <arg>${columns_java}</arg>
             <arg>--where</arg>
-            <arg>${check_column} &gt; TO_TIMESTAMP('${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}', 'YYYY-MM-DD HH24:MI:SS.FF')</arg>
+            <arg>${check_column} &gt; ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}</arg>
         </sqoop>
         <ok to="hiveReconcile"/>
         <error to="kill"/>
@@ -85,7 +84,9 @@
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
             <query>
-use inctest;
+SET hive.auto.convert.join=false;
+
+use increment_test;
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_CURRENT;
 CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
@@ -99,7 +100,7 @@ CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
-SELECT t1.* FROM
+SELECT /*+ MAPJOIN(s) */ t1.* FROM
     (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
     UNION ALL
     SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t1
