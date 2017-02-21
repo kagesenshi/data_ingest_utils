@@ -6,6 +6,7 @@ import argparse
 from collections import OrderedDict
 import os
 import shutil
+from datetime import datetime
 
 hive_create_template = '''
 drop table if exists staging.%(source_name)s_%(schema)s_%(table)s;
@@ -16,28 +17,57 @@ STORED AS PARQUET
 LOCATION '/user/trace/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
 '''
 
-falcon_process_template = '''
-<process name="process-INGEST-%(schema)s-%(table)s">
-    <tags>type=ingestion source=%(source_name)s schema=%(schema)s ingest_type=%(ingest_type)s</tags>
+falcon_process_template = (
+'''<process xmlns='uri:falcon:process:0.1' name="%(process_name)s">
+    <tags>entity_type=process,activity_type=ingestion,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,ingest_type=%(ingest_type)s</tags>
     <clusters>
         <cluster name="TMDATALAKEP">
-            <validity start="2016-01-01T00:00Z" end="2100-01-01T00:00Z"/>
+            <validity start="%(start_utc)s" end="2099-12-31T00:00Z"/>
         </cluster>
     </clusters>
     <parallel>1</parallel>
     <order>FIFO</order>
-    <frequency>hours(%(frequency_hours)s)</order>
+    <frequency>hours(%(frequency_hours)s)</frequency>
     <timezone>GMT+08:00</timezone>
-    <sla shouldStartIn="hours(1)" shouldEndIn="hours(%(should_end_hours)s)"/>
-    <validity start="%(start_utc)s" end="2100-01-01T00:00Z" timezone="MYT"/>
     <outputs>
-        <output name="output" feed="rawdata-%(schema)s-%(table)s" instance="today(0,0)"/>
+        %(outputs)s
     </outputs>
-    <workflow engine="oozie" path="%(workflow_path)s"/>
     <properties>
-        %(properties)s
+       %(properties)s
     </properties>
+    <workflow engine="oozie" path="%(workflow_path)s"/>
+    <retry policy='periodic' delay='minutes(30)' attempts='3'/>
 </process>
+''')
+
+falcon_feed_template = '''
+<feed xmlns='uri:falcon:feed:0.1' name='%(feed_name)s'>
+  <tags>entity_type=feed,format=%(feed_format)s,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,ingest_type=%(ingest_type)s</tags>
+  <availabilityFlag>_SUCCESS</availabilityFlag>
+  <frequency>days(1)</frequency>
+  <timezone>GMT+08:00</timezone>
+  <late-arrival cut-off='hours(4)'/>
+  <clusters>
+    <cluster name='TMDATALAKEP' type='source'>
+      <validity start='%(start_utc)s' end='2099-12-31T00:00Z'/>
+      <retention limit='days(1825)' action='delete'/>
+      <locations>
+        <location type='data' path='%(feed_path)s'></location>
+        <location type='stats' path='/'></location>
+      </locations>
+    </cluster>
+  </clusters>
+  <locations>
+    <location type='data' path='%(feed_path)s'></location>
+    <location type='stats' path='/'></location>
+  </locations>
+  <ACL owner='admin' group='users' permission='0x755'/>
+  <schema location='/none' provider='/none'/>
+  <properties>
+    <property name='queueName' value='oozie'></property>
+    <property name='jobPriority' value='NORMAL'></property>
+  </properties>
+</feed>
 '''
 
 
@@ -95,15 +125,37 @@ STAGES = {
    'dev': {
       'prefix': '/user/trace/development/',
       'targetdb': '%(source_name)s_DEV',
+      'stagingdb': 'staging_dev',
    },
    'test': {
       'prefix': '/user/trace/test/',
       'targetdb': '%(source_name)s',
+      'stagingdb': 'staging_test',
    },
    'prod': {
       'prefix': '/user/trace/',
       'targetdb': '%(source_name)s',
+      'stagingdb': 'staging',
    }
+}
+
+FEED_TYPE = {
+   'source': {
+       'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/ingest_date=${YEAR}-${MONTH}-${DAY}',
+       'format': 'parquet',
+   },
+   'source_flat': {
+        'path': '%(prefix)s/source_flat/%(source_name)s/%(schema)s_%(table)s/${YEAR}-${MONTH}-${DAY}',
+        'format': 'flat',
+   },
+   'source_increment': {
+        'path': '%(prefix)s/source_increment/%(source_name)s/%(schema)s_%(table)s/increment_date=${YEAR}-${MONTH}-${DAY}',
+        'format': 'parquet',
+   },
+   'source_increment_flat': {
+        'path': '%(prefix)s/source_increment_flat/%(source_name)s/%(schema)s_%(table)s/${YEAR}-${MONTH}-${DAY}',
+        'format': 'flat'
+   },
 }
 
 def oozie_config(properties):
@@ -115,21 +167,57 @@ def oozie_config(properties):
             prop[k] = properties[k]
     return prop
 
-def falcon_process(properties):
+def falcon_process(stage, properties):
     prop = oozie_config(properties)
+    outputs = []
+    for feed_type in ['source', 'source_flat']:
+        feed_name = (
+          stage + '-%(source_name)s-%(schema)s-%(table)s-' % properties +
+          feed_type
+        ).replace('_','-')
+        outputs.append(feed_name)
+    if 'increment' in properties['workflow']:
+        for feed_type in ['source_increment', 'source_increment_flat']:
+           feed_name = (
+              stage + '-%(source_name)s-%(schema)s-%(table)s-' % properties +
+              feed_type
+           ).replace('_','-')
+           outputs.append(feed_name)
     params = {
         'schema': properties['schema'],
         'table': properties['table'],
         'ingest_type': properties['workflow'],
         'source_name': properties['source_name'],
-        'start_utc': '2017-01-01T00:00Z',
+        'start_utc': datetime.utcnow().strftime('%Y-%m-%dT19:00Z'),
         'should_end_hours': 5,
         'frequency_hours': 24,
+        'process_name': (stage + '-%(source_name)s-%(schema)s-%(workflow)s' % properties).replace('_',''),
         'workflow_path': prop['oozie.wf.application.path'],
+        'stage' : stage,
         'properties': '\n       '.join(
-            ['<property name="%s" value="%s"/>' % (k,v) for (k,v) in prop.items() if '.' not in k])
+            ['<property name="%s" value="%s"/>' % (k,v) for (k,v) in prop.items() if '.' not in k]),
+        'outputs': '\n        '.join(
+            ['<output name="output%s" feed="%s" instance="today(0,0)"/>' % (t,i) for t,i in enumerate(outputs)])
     }
     job = falcon_process_template % params
+    return job
+
+def falcon_feed(stage, properties):
+    params = {
+       'schema': properties['schema'],
+       'table': properties['table'],
+       'source_name': properties['source_name'],
+       'start_utc': datetime.utcnow().strftime('%Y-%m-%dT22:00Z'),
+       'ingest_type': properties['workflow'],
+       'feed_name': (
+           stage + '-%(source_name)s-%(schema)s-%(table)s-%(feed_type)s' % properties
+       ).replace('_','-'),
+       'feed_path': properties['feed_path'],
+       'feed_type': properties['feed_type'],
+       'feed_format': properties['feed_format'],
+       'stage': stage
+    }
+    job = falcon_feed_template % params
     return job
 
 def main():
@@ -208,16 +296,21 @@ def main():
                     opts['wfpath'] = os.path.join(conf['prefix'],'workflows', ingest_wf)
                     opts['prefix'] = conf['prefix']
                     opts['targetdb'] = conf['targetdb'] % params
-                    if stage == 'prod':
-                       opts['stagingdb'] = 'staging'
-                    else:
-                       opts['stagingdb'] = 'staging_dev'
+                    opts['stagingdb'] = conf['stagingdb'] 
+
                     filename = '%(source_name)s-%(schema)s-%(table)s.properties' % opts
                     storedir = 'artifacts/%s-oozie-%s' % (stage, ingest)
 
                     # sources without merge_column and check_column cant be ingested incremental
-                    if 'incremental' in ingest and (not opts['merge_column']) and (not opts['check_column']):
+                    if 'incremental' in ingest and not (opts['merge_column'] and opts['check_column']):
                         continue
+
+                    # use only 1 mapper for small tables when incremental
+                    if 'increment' in ingest:
+                       if opts['mapper'] < 5:
+                          opts['mapper'] = 1
+                       elif opts['mapper'] > 10:
+                          opts['mapper'] = 10
 
                     if not os.path.exists(storedir):
                         os.makedirs(storedir)
@@ -225,14 +318,39 @@ def main():
                         job = '\n'.join(['%s=%s' % (k,v) for k,v in oozie_config(opts).items()])
                         f.write(job)
 
-                    # Falcon
+                    # Falcon Process
+                    # sources that can be ingested incrementally does not need falcon full-ingest entity
+                    if 'full-ingest' in ingest and (opts['merge_column'] and opts['check_column']):
+                        continue
+
                     filename = '%(source_name)s-%(schema)s-%(table)s.xml' % opts
                     storedir = 'artifacts/%s-falconprocess-%s' % (stage, ingest)
                     if not os.path.exists(storedir): 
                         os.makedirs(storedir)
                     with open('%s/%s' % (storedir,filename), 'w') as f:
-                        job = falcon_process(opts)
+                        job = falcon_process(stage, opts)
                         f.write(job)
+
+                for feed_type, feed_info in FEED_TYPE.items():
+                    opts = params.copy()
+                    if 'increment' in feed_type and not (opts['merge_column'] and opts['check_column']):
+                        continue
+                    opts['prefix'] = conf['prefix']
+                    opts['targetdb'] = conf['targetdb'] % params
+                    opts['stagingdb'] = conf['stagingdb'] 
+
+                    opts['feed_type'] = feed_type
+                    opts['feed_format'] = feed_info['format']
+
+                    opts['feed_path'] = feed_info['path'] % opts
+                    filename = '%(source_name)s-%(schema)s-%(table)s-%(feed_type)s.xml' % opts
+                    storedir = 'artifacts/%s-falconfeed' % (stage)
+                    if not os.path.exists(storedir): 
+                        os.makedirs(storedir)
+                    with open('%s/%s' % (storedir,filename), 'w') as f:
+                        job = falcon_feed(stage, opts)
+                        f.write(job)
+
     
             # generate hive create table
             hive_create.append(hive_create_template % params) 
