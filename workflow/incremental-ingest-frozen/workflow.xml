@@ -83,9 +83,13 @@
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <configuration>
+                <property>
+                    <name>mapred.reduce.tasks</name>
+                    <value>-1</value>
+                </property>
+            </configuration>
             <query>
-SET hive.auto.convert.join=false;
-
 use increment_test;
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_CURRENT;
@@ -100,17 +104,13 @@ CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
-SELECT /*+ MAPJOIN(s) */ t1.* FROM
-    (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
-    UNION ALL
-    SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t1
-JOIN
-    (SELECT ${merge_column}, max(${check_column}) max_value FROM
-        (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
-        UNION ALL
-        SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t2
-        GROUP BY ${merge_column}) s
-    ON t1.${merge_column} = s.${merge_column} AND t1.${check_column} = s.max_value;
+SELECT t2.* FROM
+   (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY ${check_column} DESC) hive_rn
+      FROM
+      (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
+         UNION ALL
+      SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t1) t2
+WHERE t2.hive_rn=1;
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
 CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED (
@@ -118,7 +118,7 @@ CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED (
 ) STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
 
 INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
-SELECT * FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+SELECT ${columns} FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             </query>
