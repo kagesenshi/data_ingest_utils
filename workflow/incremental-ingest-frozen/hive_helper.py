@@ -90,13 +90,17 @@ def main():
         'table_columns': args.table_columns,
         'check_column': args.check_column,
         'op': args.operation,
-
     }
 
     data_type = guess_type(params)
     check_column_value = get_check_column_value(params, data_type=data_type)
 
+    check_column = args.check_column
+    if data_type is not None:
+        check_column = '%s(%s)' % (data_type, check_column)
+
     out = {
+      'HIVE_CHECK_COLUMN': check_column,
       'CHECK_COLUMN_VALUE': check_column_value,
       'YEAR': now.strftime('%Y'),
       'MONTH': now.strftime('%m'),

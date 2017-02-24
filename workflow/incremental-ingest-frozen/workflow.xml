@@ -105,7 +105,8 @@ CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
 SELECT t2.* FROM
-   (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY ${check_column} DESC) hive_rn
+   (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY 
+         ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} DESC) hive_rn
       FROM
       (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
          UNION ALL
