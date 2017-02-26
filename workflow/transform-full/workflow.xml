@@ -20,7 +20,11 @@
         <property>
             <name>staging_tbl</name>
             <value>${source_name}_${schema}_${table}</value>
-        </property>
+         </property>
+         <property>
+            <name>hivejdbc</name>
+            <value>jdbc:hive2://localhost:10000/default</value>
+         </property>
     </parameters>
     <start to="getValues"/>
     <action name="getValues">

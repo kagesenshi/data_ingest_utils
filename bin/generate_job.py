@@ -6,7 +6,8 @@ import argparse
 from collections import OrderedDict
 import os
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
+from dateutil.parser import parse as parse_date
 
 hive_create_template = '''
 drop table if exists staging.%(source_name)s_%(schema)s_%(table)s;
@@ -29,9 +30,8 @@ falcon_process_template = (
     <order>FIFO</order>
     <frequency>hours(%(frequency_hours)s)</frequency>
     <timezone>GMT+08:00</timezone>
-    <outputs>
-        %(outputs)s
-    </outputs>
+    %(inputs)s
+    %(outputs)s
     <properties>
        %(properties)s
     </properties>
@@ -42,11 +42,11 @@ falcon_process_template = (
 
 falcon_feed_template = '''
 <feed xmlns='uri:falcon:feed:0.1' name='%(feed_name)s'>
-  <tags>entity_type=feed,format=%(feed_format)s,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,ingest_type=%(ingest_type)s</tags>
+  <tags>entity_type=feed,format=%(feed_format)s,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,feed_type=%(feed_type)s</tags>
   <availabilityFlag>_SUCCESS</availabilityFlag>
   <frequency>days(1)</frequency>
   <timezone>GMT+08:00</timezone>
-  <late-arrival cut-off='hours(4)'/>
+  <late-arrival cut-off='hours(1)'/>
   <clusters>
     <cluster name='TMDATALAKEP' type='source'>
       <validity start='%(start_utc)s' end='2099-12-31T00:00Z'/>
@@ -61,7 +61,7 @@ falcon_feed_template = '''
     <location type='data' path='%(feed_path)s'></location>
     <location type='stats' path='/'></location>
   </locations>
-  <ACL owner='admin' group='users' permission='0x755'/>
+  <ACL owner='trace' group='users' permission='0x755'/>
   <schema location='/none' provider='/none'/>
   <properties>
     <property name='queueName' value='oozie'></property>
@@ -75,6 +75,7 @@ oozie_properties = OrderedDict([
     ('resourceManager','hdpmaster1.tm.com.my:8050'),
     ('jobTracker','hdpmaster1.tm.com.my:8050'),
     ('nameNode','hdfs://hdpmaster1.tm.com.my:8020'),
+    ('hivejdbc', 'jdbc:hive2://hdpmaster1.tm.com.my:10000/default'),
     ('oozie.wf.application.path','/user/trace/workflows/%(workflow)s/'),
     ('oozie.use.system.libpath','true'),
     ('user.name','trace'),
@@ -139,24 +140,80 @@ STAGES = {
    }
 }
 
-FEED_TYPE = {
-   'source': {
+PROCESSES = {
+    'ingest-full': {
+        'workflow': 'ingest-full',
+        'out_feeds': ['full'],
+        'condition': lambda x: x['merge_column'] and x['check_column'],
+        'exec_time': '03:00'
+    },
+    'ingest-increment': {
+        'workflow': 'ingest-increment',
+        'out_feeds': ['increment'],
+        'exec_time': '03:00'
+    },
+    'transform-full': {
+        'in_feeds': ['full'],
+        'workflow': 'transform-full',
+        'exec_time': '05:00',
+    },
+    'transform-increment': {
+        'in_feeds': ['increment'],
+        'workflow': 'transform-increment',
+        'exec_time': '05:00',
+    }
+}
+
+FEEDS = {
+   'full': {
        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/ingest_date=${YEAR}-${MONTH}-${DAY}',
        'format': 'parquet',
+       'exec_time': '00:00',
    },
-   'source_flat': {
-        'path': '%(prefix)s/source_flat/%(source_name)s/%(schema)s_%(table)s/${YEAR}-${MONTH}-${DAY}',
-        'format': 'flat',
-   },
-   'source_increment': {
-        'path': '%(prefix)s/source_increment/%(source_name)s/%(schema)s_%(table)s/increment_date=${YEAR}-${MONTH}-${DAY}',
+#   'source_flat': {
+#        'path': '%(prefix)s/source_flat/%(source_name)s/%(schema)s_%(table)s/${YEAR}-${MONTH}-${DAY}',
+#        'format': 'flat',
+#   },
+   'increment': {
+        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/ingest_date=${YEAR}-${MONTH}-${DAY}',
         'format': 'parquet',
+        'exec_time': '00:00'
    },
-   'source_increment_flat': {
-        'path': '%(prefix)s/source_increment_flat/%(source_name)s/%(schema)s_%(table)s/${YEAR}-${MONTH}-${DAY}',
-        'format': 'flat'
-   },
+#   'source_increment_flat': {
+#        'path': '%(prefix)s/source_increment_flat/%(source_name)s/%(schema)s_%(table)s/${YEAR}-${MONTH}-${DAY}',
+#        'format': 'flat'
+#   },
 }
+
+ARTIFACTS='artifacts/'
+
+def generate_utc_time(t):
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+    dt = tomorrow + ' %s' % t
+    start_dt = parse_date(dt)
+    return (start_dt - timedelta(hours=8)).strftime('%Y-%m-%dT%H:%MZ')
+
+def default_feed_name(stage, properties, feed):
+    return (stage + 
+        '-%(source_name)s-%(schema)s-%(table)s-' % properties +
+        feed
+    ).replace('_','')
+
+def default_process_name(stage, properties):
+    return (
+        stage + 
+        '-%(source_name)s-%(schema)s-%(table)s-%(workflow)s' % properties
+    ).replace('_','')
+
+def write_oozie_config(storedir, properties):
+    filename = '%(source_name)s-%(schema)s-%(table)s.properties' % properties
+    if not os.path.exists(storedir):
+        os.makedirs(storedir)
+    with open('%s/%s' % (storedir, filename), 'w') as f:
+        job = '\n'.join([
+            '%s=%s' % (k,v) for k,v in oozie_config(properties).items()
+        ])
+        f.write(job)
 
 def oozie_config(properties):
     prop = oozie_properties.copy()
@@ -167,72 +224,96 @@ def oozie_config(properties):
             prop[k] = properties[k]
     return prop
 
-def falcon_process(stage, properties):
+def write_falcon_process(storedir, stage, properties, in_feeds=None,
+        out_feeds=None, process_time='05:00'):
+    filename = '%(source_name)s-%(schema)s-%(table)s.xml' % properties
+    if not os.path.exists(storedir):
+        os.makedirs(storedir)
+    with open('%s/%s' % (storedir, filename), 'w') as f:
+        params, job = falcon_process(stage, properties, in_feeds, out_feeds)
+        f.write(job)
+
+   
+
+def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
+        process_time='05:00'):
+    inputs = [
+        default_feed_name(stage, properties, 
+            i) for  i in (in_feeds or [])
+        ]
+    outputs = [
+        default_feed_name(stage, properties, 
+            i) for  i in (out_feeds or [])
+        ]
+    inputs_xml = '\n        '.join(
+            ['<input name="input%s" feed="%s" instance="now(0,0)"/>' % 
+                (t,i) for t,i in enumerate(inputs)])
+    inputs_xml = '<inputs>%s</inputs>' % inputs_xml if inputs_xml else ''
+    outputs_xml = '\n        '.join(
+            ['<output name="output%s" feed="%s" instance="now(0,0)"/>' %
+                (t,i) for t,i in enumerate(outputs)])
+    outputs_xml = '<outputs>%s</outputs>' % outputs_xml if outputs_xml else ''
+
     prop = oozie_config(properties)
-    outputs = []
-    for feed_type in ['source', 'source_flat']:
-        feed_name = (
-          stage + '-%(source_name)s-%(schema)s-%(table)s-' % properties +
-          feed_type
-        ).replace('_','-')
-        outputs.append(feed_name)
-    if 'increment' in properties['workflow']:
-        for feed_type in ['source_increment', 'source_increment_flat']:
-           feed_name = (
-              stage + '-%(source_name)s-%(schema)s-%(table)s-' % properties +
-              feed_type
-           ).replace('_','-')
-           outputs.append(feed_name)
     params = {
         'schema': properties['schema'],
         'table': properties['table'],
         'ingest_type': properties['workflow'],
         'source_name': properties['source_name'],
-        'start_utc': datetime.utcnow().strftime('%Y-%m-%dT19:00Z'),
+        'start_utc': generate_utc_time(process_time),
         'should_end_hours': 5,
         'frequency_hours': 24,
-        'process_name': (stage + '-%(source_name)s-%(schema)s-%(workflow)s' % properties).replace('_',''),
+        'process_name': default_process_name(stage, properties),
         'workflow_path': prop['oozie.wf.application.path'],
         'stage' : stage,
         'properties': '\n       '.join(
             ['<property name="%s" value="%s"/>' % (k,v) for (k,v) in prop.items() if '.' not in k]),
-        'outputs': '\n        '.join(
-            ['<output name="output%s" feed="%s" instance="today(0,0)"/>' % (t,i) for t,i in enumerate(outputs)])
+        'outputs': outputs_xml,
+        'inputs': inputs_xml,
     }
     job = falcon_process_template % params
-    return job
+    return params, job
 
-def falcon_feed(stage, properties):
+
+def write_falcon_feed(storedir, stage, properties, feed, feed_path, 
+        feed_format, exec_time='00:00'):
+    filename = '%(source_name)s-%(schema)s-%(table)s.xml' % properties
+    if not os.path.exists(storedir):
+        os.makedirs(storedir)
+    with open('%s/%s' % (storedir, filename), 'w') as f:
+        params, job = falcon_feed(stage, properties, feed, 
+                    feed_path, feed_format, exec_time)
+        f.write(job)
+
+def falcon_feed(stage, properties, feed, feed_path, feed_format, 
+            exec_time='00:00'):
     params = {
        'schema': properties['schema'],
        'table': properties['table'],
        'source_name': properties['source_name'],
-       'start_utc': datetime.utcnow().strftime('%Y-%m-%dT22:00Z'),
-       'ingest_type': properties['workflow'],
-       'feed_name': (
-           stage + '-%(source_name)s-%(schema)s-%(table)s-%(feed_type)s' % properties
-       ).replace('_','-'),
-       'feed_path': properties['feed_path'],
-       'feed_type': properties['feed_type'],
-       'feed_format': properties['feed_format'],
+       'start_utc': generate_utc_time(exec_time),
+       'feed_name': default_feed_name(stage, properties, feed), 
+       'feed_path': feed_path % properties,
+       'feed_type': feed,
+       'feed_format': feed_format,
        'stage': stage
     }
     job = falcon_feed_template % params
-    return job
+    return params, job
 
 def main():
     argparser = argparse.ArgumentParser(description='Generate oozie and falcon configurations for ingestion')
     argparser.add_argument('profilerjson', help='JSON output from oracle_profiler.py')
     opts = argparser.parse_args()
     hive_create = []
-    if os.path.exists('artifacts/'):
-        shutil.rmtree('artifacts/')
+    if os.path.exists(ARTIFACTS):
+        shutil.rmtree(ARTIFACTS)
     for ds in json.loads(open(opts.profilerjson).read()):
         for table in ds['tables']:
             mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
             if mapper > 20:
                 mapper = 20
-            columns = [c['field'] for c in table['columns']]
+            columns = ['`%s`' % c['field'] for c in table['columns']]
             columns_create = []
             columns_java = []
             columns_flat = []
@@ -250,13 +331,6 @@ def main():
             username = ds['datasource']['login']
             password = ds['datasource']['password']
    
-            if table['merge_key'] and table['check_column']:
-                workflow = 'incremental-ingest'
-            else:
-                if ds['direct']:
-                    workflow = 'full-ingest'
-                else:
-                    workflow = 'full-ingest-nodirect'
             params = {
                 'mapper': mapper, 
                 'source_name': source_name,
@@ -273,7 +347,6 @@ def main():
                 'columns_create_newline': ',\n    '.join(columns_create),
                 'columns_flat': ','.join(columns_flat),
                 'columns': ','.join([c['field'] for c in table['columns']]),
-                'workflow': workflow,
                 'merge_column': table['merge_key'],
                 'check_column': table['check_column'],
                 'direct': ds['direct']
@@ -284,79 +357,38 @@ def main():
 
 
             for stage, conf in STAGES.items():
-                for ingest in ['full-ingest', 'full-ingest-sqooponly', 'incremental-ingest', 'incremental-ingest-frozen']:
+
+
+                for process, proc_opts in PROCESSES.items():
                     opts = params.copy()
-
-                    # Oozie
-                  
-                    ingest_wf = ingest
-                    if not opts['direct'] and ingest == 'full-ingest':
-                       ingest_wf = ingest + '-nodirect'
-
-                    opts['wfpath'] = os.path.join(conf['prefix'],'workflows', ingest_wf)
                     opts['prefix'] = conf['prefix']
                     opts['targetdb'] = conf['targetdb'] % params
                     opts['stagingdb'] = conf['stagingdb'] 
 
-                    filename = '%(source_name)s-%(schema)s-%(table)s.properties' % opts
-                    storedir = 'artifacts/%s-oozie-%s' % (stage, ingest)
-
-                    # sources without merge_column and check_column cant be ingested incremental
-                    if 'incremental' in ingest and not (opts['merge_column'] and opts['check_column']):
+                    wf = proc_opts['workflow']
+                    opts['workflow'] = wf
+                    opts['wfpath'] = os.path.join(conf['prefix'],'workflows', wf)
+                    if not proc_opts.get('condition', lambda x: True):
                         continue
 
-                    # use only 1 mapper for small tables when incremental
-                    if 'increment' in ingest:
-                       if opts['mapper'] < 5:
-                          opts['mapper'] = 1
-                       elif opts['mapper'] > 10:
-                          opts['mapper'] = 10
+                    storedir = '%s/%s-oozie-%s' % (ARTIFACTS, stage, wf)
+                    write_oozie_config(storedir, opts)
+                    storedir = '%s/%s-falconprocess-%s' % (ARTIFACTS, stage, wf)
 
-                    if not os.path.exists(storedir):
-                        os.makedirs(storedir)
-                    with open('%s/%s' % (storedir, filename), 'w') as f:
-                        job = '\n'.join(['%s=%s' % (k,v) for k,v in oozie_config(opts).items()])
-                        f.write(job)
+                    write_falcon_process(storedir, stage, opts,
+                        proc_opts.get('in_feeds', []), 
+                        proc_opts.get('out_feeds', []),
+                        proc_opts['exec_time']
+                    )
 
-                    # Falcon Process
-                    # sources that can be ingested incrementally does not need falcon full-ingest entity
-                    if 'full-ingest' in ingest and (opts['merge_column'] and opts['check_column']):
-                        continue
-
-                    filename = '%(source_name)s-%(schema)s-%(table)s.xml' % opts
-                    storedir = 'artifacts/%s-falconprocess-%s' % (stage, ingest)
-                    if not os.path.exists(storedir): 
-                        os.makedirs(storedir)
-                    with open('%s/%s' % (storedir,filename), 'w') as f:
-                        job = falcon_process(stage, opts)
-                        f.write(job)
-
-                for feed_type, feed_info in FEED_TYPE.items():
+                for feed, feed_opts in FEEDS.items():
                     opts = params.copy()
-                    if 'increment' in feed_type and not (opts['merge_column'] and opts['check_column']):
-                        continue
                     opts['prefix'] = conf['prefix']
-                    opts['targetdb'] = conf['targetdb'] % params
-                    opts['stagingdb'] = conf['stagingdb'] 
+                    storedir = '%s/%s-falconfeed-%s' % (ARTIFACTS, stage, feed)
+                    write_falcon_feed(storedir, stage, opts, feed,
+                                    feed_opts['path'], feed_opts['format'],
+                                    feed_opts['exec_time'])
 
-                    opts['feed_type'] = feed_type
-                    opts['feed_format'] = feed_info['format']
-
-                    opts['feed_path'] = feed_info['path'] % opts
-                    filename = '%(source_name)s-%(schema)s-%(table)s-%(feed_type)s.xml' % opts
-                    storedir = 'artifacts/%s-falconfeed' % (stage)
-                    if not os.path.exists(storedir): 
-                        os.makedirs(storedir)
-                    with open('%s/%s' % (storedir,filename), 'w') as f:
-                        job = falcon_feed(stage, opts)
-                        f.write(job)
-
-    
-            # generate hive create table
-            hive_create.append(hive_create_template % params) 
-    
-    with open('external-tables.sql', 'w') as f:
-         f.write('\n\n'.join(hive_create))
 
 if __name__ == '__main__':
     main()

@@ -20,7 +20,11 @@
         <property>
             <name>staging_tbl</name>
             <value>${source_name}_${schema}_${table}</value>
-        </property>
+         </property>
+         <property>
+            <name>hivejdbc</name>
+            <value>jdbc:hive2://localhost:10000/default</value>
+         </property>
     </parameters>
     <start to="getValues"/>
     <action name="getValues">
@@ -47,20 +51,12 @@
     </action>
 
     <action name="hiveReconcile">
-        <hive
-            xmlns="uri:oozie:hive-action:0.6">
+        <hive2
+            xmlns="uri:oozie:hive2-action:0.2">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
-            <configuration>
-                <property>
-                    <name>mapred.reduce.tasks</name>
-                    <value>-1</value>
-                </property>
-                <property>
-                    <name>hive.exec.reducers.max</name>
-                    <value>10240</value>
-                </property>
-            </configuration>
+            <jdbc-url>${hivejdbc}</jdbc-url>
+            <password></password>
             <query>
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_CURRENT;
 CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
@@ -92,7 +88,7 @@ SELECT ${columns} FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             </query>
-        </hive>
+        </hive2>
         <ok to="copyAvroMetadata"/>
         <error to="kill"/>
     </action>
@@ -104,7 +100,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             <arg>${nameNode}/${outputdir}/CURRENT/.metadata</arg>
             <arg>${nameNode}/${outputdir}/RECONCILED/</arg>
         </distcp>
-        <ok to="end"/>
+        <ok to="moveToCurrent"/>
         <error to="kill"/>
      </action>
 
@@ -162,17 +158,15 @@ CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
 ) STORED AS PARQUET LOCATION '${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}';
 
 CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table} (
-    ${columns_create}
+   ${columns_create}
 ) STORED AS ORC;
 
 INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
-SELECT
-    ${columns}
-FROM ${targetdb}.${schema}_${table}_CURRENT;
-            </query>
+SELECT ${columns} FROM ${targetdb}.${schema}_${table}_CURRENT;
+           </query>
         </hive>
         <ok to="markORCDataReady"/>
-        <error to="kill"/>
+        <error to="revertPrevious"/>
     </action>
 
     <action name="markORCDataReady">
@@ -181,6 +175,19 @@ FROM ${targetdb}.${schema}_${table}_CURRENT;
             <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
         </fs>
         <ok to="end"/>
+        <error to="kill"/>
+     </action>
+
+    <action name="revertPrevious">
+        <fs>
+           <name-node>${nameNode}</name-node>
+           <delete path="${nameNode}/${outputdir}/ERROR"></delete>
+           <move source="${nameNode}/${outputdir}/CURRENT"
+                  target="${nameNode}/${outputdir}/ERROR"></move>
+           <move source="${nameNode}/${outputdir}/PREVIOUS" 
+                    target="${nameNode}/${outputdir}/CURRENT"></move>
+        </fs>
+        <ok to="kill"/>
         <error to="kill"/>
     </action>
 
