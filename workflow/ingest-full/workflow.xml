@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="I-FULL-${source_name}-${schema}-${table}">
+   <parameters>
+      <property>
+         <name>prefix</name>
+         <value>/user/trace/development</value>
+      </property>
+      <property>
+         <name>outputdir</name>
+         <value>${prefix}/source/${source_name}/${schema}_${table}</value>
+      </property>
+      <property>
+         <name>direct</name>
+         <value>True</name>
+      </property>
+   </parameters>
+   <start to="getValues"/>
+   <action name="getValues">
+      <shell
+         xmlns="uri:oozie:shell-action:0.3">
+         <job-tracker>${resourceManager}</job-tracker>
+         <name-node>${nameNode}</name-node>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queue.name</name>
+               <value>oozie</value>
+            </property>
+         </configuration>
+         <exec>python</exec>
+         <argument>date_helper.py</argument>
+         <file>date_helper.py</file>
+         <capture-output/>
+      </shell>
+      <ok to="removeExisting"/>
+      <error to="kill"/>
+   </action>
+
+   <action name="removeExisting">
+      <fs>
+         <name-node>${nameNode}</name-node>
+         <delete path="${outputdir}/CURRENT/"></delete>
+      </fs>
+      <ok to="sqoop"/>
+      <error to="kill"/>
+   </action>
+   <decision name="select-sqoop">
+      <switch>
+         <case to="sqoop-direct">
+            ${direct eq 'True'}
+         </case>
+         <case to="sqoop-nodirect">
+            ${direct eq 'False'}
+         </case>
+         <default to="kill"/>
+      </switch>
+   </decision>
+   <action name="sqoop-direct" retry-max="3" retry-interval="5">
+      <sqoop xmlns="uri:oozie:sqoop-action:0.3">
+         <job-tracker>${resourceManager}</job-tracker>
+         <name-node>${nameNode}</name-node>
+         <job-xml>conf/oraoop-site.xml</job-xml>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queue.name</name>
+               <value>oozie</value>
+            </property>
+            <property>
+               <name>queueName</name>
+               <value>sqoop</value>
+            </property>
+         </configuration>
+         <arg>import</arg>
+         <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
+         <arg>-Doraoop.jdbc.url.verbatim=true</arg>
+         <!--<arg>-Doraoop.import.consistent.read=true</arg>-->
+         <arg>-Dmapreduce.job.queuename=sqoop</arg>
+         <arg>--connect</arg>
+         <arg>${jdbc_uri}</arg>
+         <arg>-m</arg>
+         <arg>${mapper}</arg>
+         <arg>--table</arg>
+         <arg>${schema}.${table}</arg>
+         <arg>--target-dir</arg>
+         <arg>${outputdir}/CURRENT</arg>
+         <arg>--delete-target-dir</arg>
+         <arg>--username</arg>
+         <arg>${username}</arg>
+         <arg>--password</arg>
+         <arg>${password}</arg>
+         <arg>--as-parquetfile</arg>
+         <arg>--direct</arg>
+         <arg>--map-column-java</arg>
+         <arg>${columns_java}</arg>
+      </sqoop>
+      <ok to="prepDistcp"/>
+      <error to="kill"/>
+   </action>
+
+   <action name="sqoop-nodirect" retry-max="3" retry-interval="5">
+      <sqoop xmlns="uri:oozie:sqoop-action:0.3">
+         <job-tracker>${resourceManager}</job-tracker>
+         <name-node>${nameNode}</name-node>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queue.name</name>
+               <value>oozie</value>
+            </property>
+            <property>
+               <name>queueName</name>
+               <value>sqoop</value>
+            </property>
+         </configuration>
+         <arg>import</arg>
+         <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
+         <arg>-Dmapreduce.job.queuename=sqoop</arg>
+         <arg>--connect</arg>
+         <arg>${jdbc_uri}</arg>
+         <arg>-m</arg>
+         <arg>${mapper}</arg>
+         <arg>--table</arg>
+         <arg>${schema}.${table}</arg>
+         <arg>--target-dir</arg>
+         <arg>${outputdir}/CURRENT</arg>
+         <arg>--delete-target-dir</arg>
+         <arg>--username</arg>
+         <arg>${username}</arg>
+         <arg>--password</arg>
+         <arg>${password}</arg>
+         <arg>--as-parquetfile</arg>
+         <arg>--map-column-java</arg>
+         <arg>${columns_java}</arg>
+      </sqoop>
+      <ok to="prepDistcp"/>
+      <error to="kill"/>
+   </action>
+
+   <action name="prepDistcp">
+      <fs>
+         <name-node>${nameNode}</name-node>
+         <delete path="${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}"></delete>
+      </fs>
+      <ok to="distcp"/>
+      <error to="kill"/>
+   </action>
+   <action name="distcp">
+      <distcp
+         xmlns="uri:oozie:distcp-action:0.2">
+         <job-tracker>${resourceManager}</job-tracker>
+         <name-node>${nameNode}</name-node>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queue.name</name>
+               <value>oozie</value>
+            </property>
+         </configuration>
+         <arg>${nameNode}/${outputdir}/CURRENT/</arg>
+         <arg>${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
+      </distcp>
+      <ok to="markRawDataReady"/>
+      <error to="kill"/>
+   </action>
+   <action name="markRawDataReady">
+      <fs>
+         <name-node>${nameNode}</name-node>
+         <touchz path="${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+      </fs>
+      <ok to="end"/>
+      <error to="kill"/>
+   </action>
+   <kill name="kill">
+      <message>${wf:errorMessage(wf:lastErrorNode())}</message>
+   </kill>
+   <end name="end"/>
+</workflow-app>

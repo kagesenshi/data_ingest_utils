@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="T-FULL-${source_name}-${schema}-${table}">
+    <parameters>
+        <property>
+            <name>prefix</name>
+            <value>/user/trace/development/</value>
+        </property>
+        <property>
+            <name>stagingdb</name>
+            <value>staging_dev</value>
+        </property>
+        <property>
+            <name>targetdb</name>
+            <value>${source_name}_dev</value>
+        </property>
+        <property>
+            <name>outputdir</name>
+            <value>${prefix}/source/${source_name}/${schema}_${table}/</value>
+        </property>
+        <property>
+            <name>staging_tbl</name>
+            <value>${source_name}_${schema}_${table}</value>
+        </property>
+    </parameters>
+    <start to="getValues"/>
+    <action name="getValues">
+        <shell
+            xmlns="uri:oozie:shell-action:0.3">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <exec>python</exec>
+            <argument>date_helper.py</argument>
+            <file>date_helper.py</file>
+            <capture-output/>
+        </shell>
+        <ok to="exportORC"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="exportORC">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <query>
+CREATE DATABASE IF NOT EXISTS ${targetdb};
+
+CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
+    ${columns_create}
+) STORED AS PARQUET LOCATION '${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}';
+
+CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table} (
+    ${columns_create}
+) STORED AS ORC;
+
+INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
+SELECT
+    ${columns}
+FROM ${targetdb}.${schema}_${table}_CURRENT;
+            </query>
+        </hive>
+        <ok to="markORCDataReady"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="markORCDataReady">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
+        </fs>
+        <ok to="end"/>
+        <error to="kill"/>
+    </action>
+
+    <kill name="kill">
+        <message>${wf:errorMessage(wf:lastErrorNode())}</message>
+    </kill>
+    <end name="end"/>
+</workflow-app>
