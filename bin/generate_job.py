@@ -161,6 +161,10 @@ PROCESSES = {
         'in_feeds': ['increment'],
         'workflow': 'transform-increment',
         'exec_time': '05:00',
+    },
+    'incremental-ingest-frozen': {
+        'workflow': 'incremental-ingest-frozen',
+        'exec_time': '05:00'
     }
 }
 
@@ -313,7 +317,7 @@ def main():
             mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
             if mapper > 20:
                 mapper = 20
-            columns = ['`%s`' % c['field'] for c in table['columns']]
+            columns = [c['field'] for c in table['columns']]
             columns_create = []
             columns_java = []
             columns_flat = []
@@ -346,7 +350,7 @@ def main():
                 'columns_create': ','.join(columns_create),
                 'columns_create_newline': ',\n    '.join(columns_create),
                 'columns_flat': ','.join(columns_flat),
-                'columns': ','.join([c['field'] for c in table['columns']]),
+                'columns': ','.join(['`%s`' % c['field'] for c in table['columns']]),
                 'merge_column': table['merge_key'],
                 'check_column': table['check_column'],
                 'direct': ds['direct']

@@ -25,6 +25,10 @@
             <name>hivejdbc</name>
             <value>jdbc:hive2://localhost:10000/default</value>
          </property>
+         <property>
+            <name>readyMarker</name>
+            <value>${outputdir}/CURRENT/_READY_FOR_TRANSFORM</value>
+         </property>
     </parameters>
     <start to="getValues"/>
     <action name="getValues">
@@ -37,10 +41,18 @@
             <file>date_helper.py</file>
             <capture-output/>
         </shell>
-        <ok to="exportORC"/>
+        <ok to="checkDataReadiness"/>
         <error to="kill"/>
     </action>
 
+    <decision name="checkDataReadiness">
+       <switch>
+          <case to="exportORC">
+             ${fs:exists(readyMarker)}
+          </case>
+          <default to="kill"/>
+       </switch>
+    </decision>
     <action name="exportORC">
         <hive
             xmlns="uri:oozie:hive-action:0.6">
@@ -72,9 +84,18 @@ FROM ${targetdb}.${schema}_${table}_CURRENT;
             <name-node>${nameNode}</name-node>
             <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
         </fs>
-        <ok to="end"/>
+        <ok to="cleanMarker"/>
         <error to="kill"/>
-    </action>
+     </action>
+
+   <action name="cleanMarker">
+      <fs>
+         <name-node>${nameNode}</name-node>
+         <delete path="${readyMarker}"></delete>
+      </fs>
+      <ok to="end"/>
+      <error to="kill"/>
+   </action>
 
     <kill name="kill">
         <message>${wf:errorMessage(wf:lastErrorNode())}</message>

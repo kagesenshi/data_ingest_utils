@@ -17,13 +17,18 @@ LOCATION "%(path)s";
 '''
 
 def guess_type(sql_args):
+    if sql_args['check_column'].upper() == 'MOD_T':
+        return 'bigint'
+    if sql_args['check_column'].upper() == 'LAST_UPD':
+        return None
+
     query = CREATE_SCRIPT + '''
         select %(check_column)s from default.%(tablename)s where %(check_column)s is
         not null limit 1;
     '''
 
     result = execute_query(query, **sql_args)
-    if re.match('\d+', result):
+    if re.match(r'\d+', result):
         return 'bigint'
     return None
 
@@ -45,7 +50,7 @@ def get_check_column_value(sql_args, data_type=None):
 
     if re.match(r'\d+-\d+-\d+ \d+:\d+:\d+\.\d+', result):
        result = (
-           "TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')" % check_column_value
+           "TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')" % result
        )
     return result
 

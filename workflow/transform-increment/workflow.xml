@@ -25,7 +25,11 @@
             <name>hivejdbc</name>
             <value>jdbc:hive2://localhost:10000/default</value>
          </property>
-    </parameters>
+         <property>
+            <name>readyMarker</name>
+            <value>${outputdir}/INCREMENT/CURRENT/_READY_FOR_TRANSFORM</value>
+         </property>
+      </parameters>
     <start to="getValues"/>
     <action name="getValues">
         <shell
@@ -37,9 +41,18 @@
             <file>date_helper.py</file>
             <capture-output/>
         </shell>
-        <ok to="removeExisting"/>
+        <ok to="checkDataReadiness"/>
         <error to="kill"/>
-    </action>
+     </action>
+
+    <decision name="checkDataReadiness">
+       <switch>
+          <case to="removeExisting">
+             ${fs:exists(readyMarker)}
+          </case>
+          <default to="kill"/>
+       </switch>
+    </decision>
 
     <action name="removeExisting">
         <fs>
@@ -174,9 +187,18 @@ SELECT ${columns} FROM ${targetdb}.${schema}_${table}_CURRENT;
             <name-node>${nameNode}</name-node>
             <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
         </fs>
-        <ok to="end"/>
+        <ok to="cleanMarker"/>
         <error to="kill"/>
      </action>
+
+   <action name="cleanMarker">
+      <fs>
+         <name-node>${nameNode}</name-node>
+         <delete path="${readyMarker}"></delete>
+      </fs>
+      <ok to="end"/>
+      <error to="kill"/>
+   </action>
 
     <action name="revertPrevious">
         <fs>

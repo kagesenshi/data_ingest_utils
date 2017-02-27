@@ -11,7 +11,7 @@
       </property>
       <property>
          <name>direct</name>
-         <value>True</name>
+         <value>True</value>
       </property>
    </parameters>
    <start to="getValues"/>
@@ -40,7 +40,7 @@
          <name-node>${nameNode}</name-node>
          <delete path="${outputdir}/CURRENT/"></delete>
       </fs>
-      <ok to="sqoop"/>
+      <ok to="select-sqoop"/>
       <error to="kill"/>
    </action>
    <decision name="select-sqoop">
@@ -48,10 +48,7 @@
          <case to="sqoop-direct">
             ${direct eq 'True'}
          </case>
-         <case to="sqoop-nodirect">
-            ${direct eq 'False'}
-         </case>
-         <default to="kill"/>
+         <default to="sqoop-nodirect"/>
       </switch>
    </decision>
    <action name="sqoop-direct" retry-max="3" retry-interval="5">
@@ -163,6 +160,7 @@
       <fs>
          <name-node>${nameNode}</name-node>
          <touchz path="${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+         <touchz path="${nameNode}/${outputdir}/CURRENT/_READY_FOR_TRANSFORM"></touchz>
       </fs>
       <ok to="end"/>
       <error to="kill"/>

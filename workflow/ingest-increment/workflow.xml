@@ -25,6 +25,7 @@
          <name>direct</name>
          <value>True</value>
       </property>
+
    </parameters>
    <start to="getValues"/>
    <action name="getValues">
@@ -62,10 +63,7 @@
          <case to="sqoop-direct">
             ${wf:conf('direct') eq 'True'}
          </case>
-         <case to="sqoop-nodirect">
-            ${wf:conf('direct') eq 'False'}
-         </case>
-         <default to="kill"/>
+         <default to="sqoop-nodirect"/>
       </switch>
    </decision>
    <action name="sqoop-direct" retry-max="3" retry-interval="5">
@@ -151,6 +149,7 @@
       <fs>
          <name-node>${nameNode}</name-node>
          <touchz path="${outputdir}/INCREMENT/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+         <touchz path="${outputdir}/INCREMENT/CURRENT/_READY_FOR_TRANSFORM"></touchz>
       </fs>
       <ok to="end"/>
       <error to="kill"/>
