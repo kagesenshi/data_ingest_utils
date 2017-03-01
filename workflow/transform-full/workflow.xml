@@ -36,6 +36,7 @@
             xmlns="uri:oozie:shell-action:0.3">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <job-xml>conf/oozie.xml</job-xml>
             <exec>python</exec>
             <argument>date_helper.py</argument>
             <file>date_helper.py</file>
@@ -58,6 +59,7 @@
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <job-xml>conf/oozie.xml</job-xml>
             <query>
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 

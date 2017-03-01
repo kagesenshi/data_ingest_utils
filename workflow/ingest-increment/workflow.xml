@@ -25,7 +25,14 @@
          <name>direct</name>
          <value>True</value>
       </property>
-
+      <property>
+         <name>backdate</name>
+         <value>3</value>
+      </property>
+      <property>
+         <name>oozie_queue</name>
+         <value>oozie</value>
+      </property>
    </parameters>
    <start to="getValues"/>
    <action name="getValues">
@@ -33,6 +40,7 @@
          xmlns="uri:oozie:shell-action:0.3">
          <job-tracker>${resourceManager}</job-tracker>
          <name-node>${nameNode}</name-node>
+         <job-xml>conf/oozie.xml</job-xml>
          <exec>python</exec>
          <argument>hive_helper.py</argument>
          <argument>-p</argument>
@@ -41,6 +49,10 @@
          <argument>${check_column}</argument>
          <argument>-d</argument>
          <argument>${columns_create}</argument>
+         <argument>-b</argument>
+         <argument>${backdate}</argument>
+         <argument>-Q</argument>
+         <argument>batch</argument>
          <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
          <file>hive_helper.py</file>
          <capture-output/>
@@ -71,7 +83,9 @@
          <job-tracker>${resourceManager}</job-tracker>
          <name-node>${nameNode}</name-node>
          <job-xml>conf/oraoop-site.xml</job-xml>
+         <job-xml>conf/oozie.xml</job-xml>
          <arg>import</arg>
+         <arg>-Dmapreduce.job.queuename=sqoop</arg>
          <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
          <arg>-Doraoop.table.import.where.clause.location=SUBSPLIT</arg>
          <!-- <arg>-Doraoop.import.consistent.read=true</arg> -->
@@ -102,7 +116,9 @@
       <sqoop xmlns="uri:oozie:sqoop-action:0.3">
          <job-tracker>${resourceManager}</job-tracker>
          <name-node>${nameNode}</name-node>
+         <job-xml>conf/oozie.xml</job-xml>
          <arg>import</arg>
+         <arg>-Dmapreduce.job.queuename=sqoop</arg>
          <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
          <arg>--connect</arg>
          <arg>${jdbc_uri}</arg>
@@ -129,6 +145,7 @@
    <action name="prepPreserveIncrement">
       <fs>
          <name-node>${nameNode}</name-node>
+         <job-xml>conf/oozie.xml</job-xml>
          <delete path="${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}"></delete>
       </fs>
       <ok to="preserveIncrement"/>
@@ -139,6 +156,16 @@
          xmlns="uri:oozie:distcp-action:0.2">
          <job-tracker>${resourceManager}</job-tracker>
          <name-node>${nameNode}</name-node>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+            <property>
+               <name>mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+         </configuration>
          <arg>${nameNode}/${outputdir}/INCREMENT/CURRENT/</arg>
          <arg>${nameNode}/${outputdir}/INCREMENT/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
       </distcp>
@@ -148,6 +175,7 @@
    <action name="markIncrementDataReady">
       <fs>
          <name-node>${nameNode}</name-node>
+         <job-xml>conf/oozie.xml</job-xml>
          <touchz path="${outputdir}/INCREMENT/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
          <touchz path="${outputdir}/INCREMENT/CURRENT/_READY_FOR_TRANSFORM"></touchz>
       </fs>

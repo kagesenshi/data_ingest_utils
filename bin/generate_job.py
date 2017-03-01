@@ -15,7 +15,7 @@ create external table staging.%(source_name)s_%(schema)s_%(table)s (
    %(columns_create_newline)s
 )            
 STORED AS PARQUET
-LOCATION '/user/trace/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
+LOCATION '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
 '''
 
 falcon_process_template = (
@@ -80,9 +80,9 @@ oozie_properties = OrderedDict([
     ('oozie.use.system.libpath','true'),
     ('user.name','trace'),
     ('mapreduce.job.user.name','trace'),
-    ('oozie.launcher.mapreduce.job.queue.name', 'oozie'),
-    ('mapred.job.queue.name', 'ingestion'),
-    ('queueName','ingestion'),
+    ('oozie.launcher.mapreduce.job.queuename', 'oozie'),
+    ('mapred.job.queuename', 'oozie'),
+    ('queueName','oozie'),
     ('prefix', None),
     ('jdbc_uri','jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
     ('username', None),
@@ -192,7 +192,8 @@ FEEDS = {
 ARTIFACTS='artifacts/'
 
 def generate_utc_time(t):
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+    #tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+    tomorrow = datetime.now().strftime('%Y-%m-%d')
     dt = tomorrow + ' %s' % t
     start_dt = parse_date(dt)
     return (start_dt - timedelta(hours=8)).strftime('%Y-%m-%dT%H:%MZ')
@@ -234,7 +235,8 @@ def write_falcon_process(storedir, stage, properties, in_feeds=None,
     if not os.path.exists(storedir):
         os.makedirs(storedir)
     with open('%s/%s' % (storedir, filename), 'w') as f:
-        params, job = falcon_process(stage, properties, in_feeds, out_feeds)
+        params, job = falcon_process(stage, properties, in_feeds, out_feeds,
+                process_time)
         f.write(job)
 
    
@@ -250,7 +252,7 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
             i) for  i in (out_feeds or [])
         ]
     inputs_xml = '\n        '.join(
-            ['<input name="input%s" feed="%s" instance="now(0,0)"/>' % 
+            ['<input name="input%s" feed="%s" start="now(0,0)" end="now(0,0)"/>' % 
                 (t,i) for t,i in enumerate(inputs)])
     inputs_xml = '<inputs>%s</inputs>' % inputs_xml if inputs_xml else ''
     outputs_xml = '\n        '.join(
@@ -362,6 +364,17 @@ def main():
 
             for stage, conf in STAGES.items():
 
+                if stage.lower() == 'test' and (
+
+                    params['source_name'] == 'BRM_NOVA') and (
+                    params['table'] in ['ITEM_T', 'EVENT_BAL_IMPACT_T',
+                                        'PROFILE_T']):
+                    opts = params.copy()
+                    opts['prefix'] = conf['prefix']
+
+                    hive_create.append(
+                        hive_create_template % opts
+                    )
 
                 for process, proc_opts in PROCESSES.items():
                     opts = params.copy()
@@ -378,7 +391,6 @@ def main():
                     storedir = '%s/%s-oozie-%s' % (ARTIFACTS, stage, wf)
                     write_oozie_config(storedir, opts)
                     storedir = '%s/%s-falconprocess-%s' % (ARTIFACTS, stage, wf)
-
                     write_falcon_process(storedir, stage, opts,
                         proc_opts.get('in_feeds', []), 
                         proc_opts.get('out_feeds', []),
@@ -393,6 +405,7 @@ def main():
                                     feed_opts['path'], feed_opts['format'],
                                     feed_opts['exec_time'])
 
+    open('hive-create.sql', 'w').write('\n'.join(hive_create))
 
 if __name__ == '__main__':
     main()

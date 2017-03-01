@@ -31,19 +31,30 @@
          </property>
       </parameters>
     <start to="getValues"/>
+ 
     <action name="getValues">
-        <shell
-            xmlns="uri:oozie:shell-action:0.3">
-            <job-tracker>${resourceManager}</job-tracker>
-            <name-node>${nameNode}</name-node>
-            <exec>python</exec>
-            <argument>date_helper.py</argument>
-            <file>date_helper.py</file>
-            <capture-output/>
-        </shell>
-        <ok to="checkDataReadiness"/>
-        <error to="kill"/>
-     </action>
+      <shell
+         xmlns="uri:oozie:shell-action:0.3">
+         <job-tracker>${resourceManager}</job-tracker>
+         <name-node>${nameNode}</name-node>
+         <job-xml>conf/oozie.xml</job-xml>
+         <exec>python</exec>
+         <argument>hive_helper.py</argument>
+         <argument>-p</argument>
+         <argument>${outputdir}/CURRENT</argument>
+         <argument>-c</argument>
+         <argument>${check_column}</argument>
+         <argument>-d</argument>
+         <argument>${columns_create}</argument>
+         <argument>-b</argument>
+         <argument>${backdate}</argument>
+         <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
+         <file>hive_helper.py</file>
+         <capture-output/>
+      </shell>
+      <ok to="removeExisting"/>
+      <error to="kill"/>
+   </action>
 
     <decision name="checkDataReadiness">
        <switch>
@@ -64,12 +75,11 @@
     </action>
 
     <action name="hiveReconcile">
-        <hive2
-            xmlns="uri:oozie:hive2-action:0.2">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
-            <jdbc-url>${hivejdbc}</jdbc-url>
-            <password></password>
+            <job-xml>conf/oozie.xml</job-xml>
             <query>
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_CURRENT;
 CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
@@ -87,6 +97,7 @@ SELECT t2.* FROM
    (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY ${check_column} DESC) hive_rn
       FROM
       (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
+         WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &lt;= ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}
          UNION ALL
       SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t1) t2
 WHERE t2.hive_rn=1;
@@ -101,7 +112,7 @@ SELECT ${columns} FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             </query>
-        </hive2>
+        </hive>
         <ok to="copyAvroMetadata"/>
         <error to="kill"/>
     </action>
@@ -110,6 +121,16 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             xmlns="uri:oozie:distcp-action:0.2">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+            <property>
+               <name>mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+         </configuration>
             <arg>${nameNode}/${outputdir}/CURRENT/.metadata</arg>
             <arg>${nameNode}/${outputdir}/RECONCILED/</arg>
         </distcp>
@@ -119,7 +140,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 
     <action name="moveToCurrent">
         <fs>
-            <name-node>${nameNode}</name-node>
+           <name-node>${nameNode}</name-node>
             <delete path="${nameNode}/${outputdir}/PREVIOUS"></delete>
             <move source="${nameNode}/${outputdir}/CURRENT" 
                     target="${nameNode}/${outputdir}/PREVIOUS"></move>
@@ -131,7 +152,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
     </action>
     <action name="prepDistcp">
         <fs>
-            <name-node>${nameNode}</name-node>
+           <name-node>${nameNode}</name-node>
             <delete path="${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}"></delete>
         </fs>
         <ok to="distcp"/>
@@ -142,6 +163,16 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             xmlns="uri:oozie:distcp-action:0.2">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+            <property>
+               <name>mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+         </configuration>
             <arg>${nameNode}/${outputdir}/CURRENT/</arg>
             <arg>${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
         </distcp>
@@ -151,7 +182,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 
     <action name="markRawDataReady">
         <fs>
-            <name-node>${nameNode}</name-node>
+           <name-node>${nameNode}</name-node>
             <touchz path="${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
         </fs>
         <ok to="exportORC"/>
@@ -163,6 +194,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             xmlns="uri:oozie:hive-action:0.6">
             <job-tracker>${resourceManager}</job-tracker>
             <name-node>${nameNode}</name-node>
+            <job-xml>conf/oozie.xml</job-xml>
             <query>
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 
@@ -184,7 +216,7 @@ SELECT ${columns} FROM ${targetdb}.${schema}_${table}_CURRENT;
 
     <action name="markORCDataReady">
         <fs>
-            <name-node>${nameNode}</name-node>
+           <name-node>${nameNode}</name-node>
             <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
         </fs>
         <ok to="cleanMarker"/>

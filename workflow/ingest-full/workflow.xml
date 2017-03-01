@@ -20,12 +20,7 @@
          xmlns="uri:oozie:shell-action:0.3">
          <job-tracker>${resourceManager}</job-tracker>
          <name-node>${nameNode}</name-node>
-         <configuration>
-            <property>
-               <name>oozie.launcher.mapreduce.job.queue.name</name>
-               <value>oozie</value>
-            </property>
-         </configuration>
+         <job-xml>conf/oozie.xml</job-xml>
          <exec>python</exec>
          <argument>date_helper.py</argument>
          <file>date_helper.py</file>
@@ -56,16 +51,7 @@
          <job-tracker>${resourceManager}</job-tracker>
          <name-node>${nameNode}</name-node>
          <job-xml>conf/oraoop-site.xml</job-xml>
-         <configuration>
-            <property>
-               <name>oozie.launcher.mapreduce.job.queue.name</name>
-               <value>oozie</value>
-            </property>
-            <property>
-               <name>queueName</name>
-               <value>sqoop</value>
-            </property>
-         </configuration>
+         <job-xml>conf/oozie.xml</job-xml>
          <arg>import</arg>
          <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
          <arg>-Doraoop.jdbc.url.verbatim=true</arg>
@@ -97,16 +83,7 @@
       <sqoop xmlns="uri:oozie:sqoop-action:0.3">
          <job-tracker>${resourceManager}</job-tracker>
          <name-node>${nameNode}</name-node>
-         <configuration>
-            <property>
-               <name>oozie.launcher.mapreduce.job.queue.name</name>
-               <value>oozie</value>
-            </property>
-            <property>
-               <name>queueName</name>
-               <value>sqoop</value>
-            </property>
-         </configuration>
+         <job-xml>conf/oozie.xml</job-xml>
          <arg>import</arg>
          <arg>-Dmapreduce.job.user.classpath.first=true</arg> 
          <arg>-Dmapreduce.job.queuename=sqoop</arg>
@@ -146,7 +123,11 @@
          <name-node>${nameNode}</name-node>
          <configuration>
             <property>
-               <name>oozie.launcher.mapreduce.job.queue.name</name>
+               <name>oozie.launcher.mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+            <property>
+               <name>mapreduce.job.queuename</name>
                <value>oozie</value>
             </property>
          </configuration>
