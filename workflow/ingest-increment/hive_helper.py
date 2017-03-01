@@ -10,6 +10,7 @@ import tempfile
 import re
 
 CREATE_SCRIPT='''
+SET tez.queue.name=%(queue)s;
 create temporary external table default.%(tablename)s (
     %(table_columns)s
 ) STORED AS PARQUET
@@ -76,7 +77,8 @@ def backdate_check_column_value(value, backdate, data_type=None):
         return newdt.strftime('%s')
     return value
 
-def execute_query(query, queue='default', **kwargs):
+def execute_query(query, **kwargs):
+    queue = kwargs.get('queue', 'default')
     scriptname = tempfile.mktemp()
     script = '%s.sql' % scriptname
     tablename = os.path.basename(scriptname)
@@ -135,11 +137,17 @@ def main():
     )
 
     check_column = args.check_column
+    hive_check_column_value = backdated_check_column_value
     if data_type is not None:
-        check_column = '%s(%s)' % (data_type, check_column)
+        check_column = '%s("%s")' % (data_type, check_column)
+        hive_check_column_value = '%s("%s")' % (data_type,
+                hive_check_column_value)
+    elif not re.match('^\d+$', hive_check_column_value):
+        hive_check_column_value = '"%s"' % hive_check_column_value
 
     out = {
       'HIVE_CHECK_COLUMN': check_column,
+      'HIVE_CHECK_COLUMN_VALUE': hive_check_column_value,
       'CHECK_COLUMN_VALUE': check_column_value,
       'YEAR': now.strftime('%Y'),
       'MONTH': now.strftime('%m'),

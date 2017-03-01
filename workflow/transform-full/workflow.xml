@@ -61,6 +61,8 @@
             <name-node>${nameNode}</name-node>
             <job-xml>conf/oozie.xml</job-xml>
             <query>
+SET tez.queue.name=batch;
+
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 
 CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (

@@ -29,6 +29,10 @@
             <name>readyMarker</name>
             <value>${outputdir}/INCREMENT/CURRENT/_READY_FOR_TRANSFORM</value>
          </property>
+         <property>
+            <name>backdate</name>
+            <value>3</value>
+         </property>
       </parameters>
     <start to="getValues"/>
  
@@ -81,6 +85,8 @@
             <name-node>${nameNode}</name-node>
             <job-xml>conf/oozie.xml</job-xml>
             <query>
+SET tez.queue.name=batch;
+
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_CURRENT;
 CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
     ${columns_create}
@@ -94,12 +100,14 @@ CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
 SELECT t2.* FROM
-   (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY ${check_column} DESC) hive_rn
+   (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY 
+      ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} DESC) hive_rn
       FROM
       (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
-         WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &lt;= ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}
+         WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &lt;= ${wf:actionData('getValues')['HIVE_CHECK_COLUMN_VALUE']}
          UNION ALL
-      SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t1) t2
+      SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT
+         WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &gt; ${wf:actionData('getValues')['HIVE_CHECK_COLUMN_VALUE']}) t1) t2
 WHERE t2.hive_rn=1;
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
@@ -196,6 +204,8 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             <name-node>${nameNode}</name-node>
             <job-xml>conf/oozie.xml</job-xml>
             <query>
+SET tez.queue.name=batch;
+
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 
 CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (

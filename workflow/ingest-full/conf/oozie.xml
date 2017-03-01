@@ -8,6 +8,10 @@
       <value>oozie</value>
    </property>
    <property>
+      <name>mapred.job.queuename</name>
+      <value>oozie</value>
+   </property>
+   <property>
       <name>tez.queue.name</name>
       <value>batch</value>
    </property>
