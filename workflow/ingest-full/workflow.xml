@@ -34,6 +34,7 @@
       <fs>
          <name-node>${nameNode}</name-node>
          <delete path="${outputdir}/CURRENT/"></delete>
+         <delete path="${outputdir}/TEMP/"></delete>
       </fs>
       <ok to="select-sqoop"/>
       <error to="kill"/>
@@ -64,7 +65,7 @@
          <arg>--table</arg>
          <arg>${schema}.${table}</arg>
          <arg>--target-dir</arg>
-         <arg>${outputdir}/CURRENT</arg>
+         <arg>${outputdir}/TEMP/</arg>
          <arg>--delete-target-dir</arg>
          <arg>--username</arg>
          <arg>${username}</arg>
@@ -75,7 +76,7 @@
          <arg>--map-column-java</arg>
          <arg>${columns_java}</arg>
       </sqoop>
-      <ok to="prepDistcp"/>
+      <ok to="moveToCurrent"/>
       <error to="kill"/>
    </action>
 
@@ -94,7 +95,7 @@
          <arg>--table</arg>
          <arg>${schema}.${table}</arg>
          <arg>--target-dir</arg>
-         <arg>${outputdir}/CURRENT</arg>
+         <arg>${outputdir}/TEMP/</arg>
          <arg>--delete-target-dir</arg>
          <arg>--username</arg>
          <arg>${username}</arg>
@@ -104,9 +105,20 @@
          <arg>--map-column-java</arg>
          <arg>${columns_java}</arg>
       </sqoop>
-      <ok to="prepDistcp"/>
+      <ok to="moveToCurrent"/>
       <error to="kill"/>
    </action>
+
+    <action name="moveToCurrent">
+        <fs>
+           <name-node>${nameNode}</name-node>
+            <delete path="${nameNode}/${outputdir}/CURRENT"></delete>
+            <move source="${nameNode}/${outputdir}/TEMP" 
+                    target="${nameNode}/${outputdir}/CURRENT"></move>
+        </fs>
+        <ok to="prepDistcp"/>
+        <error to="kill"/>
+    </action>
 
    <action name="prepDistcp">
       <fs>
@@ -128,7 +140,7 @@
             </property>
             <property>
                <name>mapreduce.job.queuename</name>
-               <value>oozie</value>
+               <value>distcp</value>
             </property>
          </configuration>
          <arg>${nameNode}/${outputdir}/CURRENT/</arg>

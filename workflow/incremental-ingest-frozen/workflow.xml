@@ -12,7 +12,11 @@
         <property>
             <name>outputdir</name>
             <value>${prefix}/source/${source_name}/${schema}_${table}</value>
-        </property>
+         </property>
+         <property>
+            <name>backdate</name>
+            <value>3</value>
+         </property>
     </parameters>
     <start to="getValues"/>
     <action name="getValues">
@@ -28,6 +32,10 @@
             <argument>${check_column}</argument>
             <argument>-d</argument>
             <argument>${columns_create}</argument>
+            <argument>-b</argument>
+            <argument>${backdate}</argument>
+            <argument>-Q</argument>
+            <argument>batch</argument>
             <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
             <file>hive_helper.py</file>
             <capture-output/>
@@ -109,8 +117,13 @@ SELECT t2.* FROM
          ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} DESC) hive_rn
       FROM
       (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
+         WHERE 
+            ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &lt;= ${wf:actionData('getValues')['HIVE_CHECK_COLUMN_VALUE']}
+            or ${check_column} is NULL
          UNION ALL
-      SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT) t1) t2
+         SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT 
+         WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &gt; ${wf:actionData('getValues')['HIVE_CHECK_COLUMN_VALUE']}
+      ) t1) t2
 WHERE t2.hive_rn=1;
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;

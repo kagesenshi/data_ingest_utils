@@ -38,7 +38,7 @@ def guess_type(sql_args):
     '''
 
     result = execute_query(query, **sql_args)
-    if re.match(r'\d+', result):
+    if re.match(r'^\d+$', result):
         return 'bigint'
     return None
 
@@ -61,10 +61,10 @@ def get_check_column_value(sql_args, data_type=None):
 
 def get_check_column_value_query(value, data_type=None):
     if DATE_PATTERN.match(value):
-       result = (
+       value = (
            "TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')" % value
        )
-    return result
+    return value
 
 def backdate_check_column_value(value, backdate, data_type=None):
     if DATE_PATTERN.match(value):
@@ -139,7 +139,7 @@ def main():
     check_column = args.check_column
     hive_check_column_value = backdated_check_column_value
     if data_type is not None:
-        check_column = '%s("%s")' % (data_type, check_column)
+        check_column = '%s(%s)' % (data_type, check_column)
         hive_check_column_value = '%s("%s")' % (data_type,
                 hive_check_column_value)
     elif not re.match('^\d+$', hive_check_column_value):
@@ -148,6 +148,7 @@ def main():
     out = {
       'HIVE_CHECK_COLUMN': check_column,
       'HIVE_CHECK_COLUMN_VALUE': hive_check_column_value,
+      'CHECK_COLUMN': args.check_column,
       'CHECK_COLUMN_VALUE': check_column_value,
       'YEAR': now.strftime('%Y'),
       'MONTH': now.strftime('%m'),

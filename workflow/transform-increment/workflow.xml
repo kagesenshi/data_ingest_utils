@@ -105,6 +105,7 @@ SELECT t2.* FROM
       FROM
       (SELECT * FROM ${source_name}_${schema}_${table}_CURRENT
          WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &lt;= ${wf:actionData('getValues')['HIVE_CHECK_COLUMN_VALUE']}
+         OR ${check_column} IS NULL
          UNION ALL
       SELECT * FROM ${source_name}_${schema}_${table}_INCREMENT
          WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &gt; ${wf:actionData('getValues')['HIVE_CHECK_COLUMN_VALUE']}) t1) t2

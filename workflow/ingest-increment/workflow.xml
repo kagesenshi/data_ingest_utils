@@ -65,6 +65,7 @@
       <fs>
          <name-node>${nameNode}</name-node>
          <delete path="${outputdir}/INCREMENT/CURRENT/"></delete>
+         <delete path="${outputdir}/INCREMENT/TEMP/"></delete>
          <delete path="${outputdir}/RECONCILED/"></delete>
       </fs>
       <ok to="select-sqoop"/>
@@ -96,7 +97,7 @@
          <arg>--table</arg>
          <arg>${schema}.${table}</arg>
          <arg>--target-dir</arg>
-         <arg>${outputdir}/INCREMENT/CURRENT</arg>
+         <arg>${outputdir}/INCREMENT/TEMP/</arg>
          <arg>--delete-target-dir</arg>
          <arg>--username</arg>
          <arg>${username}</arg>
@@ -109,7 +110,7 @@
          <arg>--where</arg>
          <arg>${check_column} &gt; ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}</arg>
       </sqoop>
-      <ok to="prepPreserveIncrement"/>
+      <ok to="moveToCurrent"/>
       <error to="kill"/>
    </action>
    <action name="sqoop-nodirect" retry-max="3" retry-interval="5">
@@ -127,7 +128,7 @@
          <arg>--table</arg>
          <arg>${schema}.${table}</arg>
          <arg>--target-dir</arg>
-         <arg>${outputdir}/INCREMENT/CURRENT</arg>
+         <arg>${outputdir}/INCREMENT/TEMP/</arg>
          <arg>--delete-target-dir</arg>
          <arg>--username</arg>
          <arg>${username}</arg>
@@ -139,9 +140,21 @@
          <arg>--where</arg>
          <arg>${check_column} &gt; ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}</arg>
       </sqoop>
-      <ok to="prepPreserveIncrement"/>
+      <ok to="moveToCurrent"/>
       <error to="kill"/>
    </action>
+
+    <action name="moveToCurrent">
+        <fs>
+           <name-node>${nameNode}</name-node>
+            <delete path="${nameNode}/${outputdir}/INCREMENT/CURRENT"></delete>
+            <move source="${nameNode}/${outputdir}/INCREMENT/TEMP" 
+                  target="${nameNode}/${outputdir}/INCREMENT/CURRENT"></move>
+        </fs>
+        <ok to="prepPreserveIncrement"/>
+        <error to="kill"/>
+     </action>
+
    <action name="prepPreserveIncrement">
       <fs>
          <name-node>${nameNode}</name-node>
@@ -163,7 +176,7 @@
             </property>
             <property>
                <name>mapreduce.job.queuename</name>
-               <value>oozie</value>
+               <value>distcp</value>
             </property>
          </configuration>
          <arg>${nameNode}/${outputdir}/INCREMENT/CURRENT/</arg>

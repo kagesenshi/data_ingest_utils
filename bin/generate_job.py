@@ -91,6 +91,7 @@ oozie_properties = OrderedDict([
     ('direct', None),
     ('targetdb', None),
     ('stagingdb', None),
+    ('backdate', '50'),
     ('schema', None),
     ('table', None),
     ('mapper', None),
@@ -145,26 +146,60 @@ PROCESSES = {
         'workflow': 'ingest-full',
         'out_feeds': ['full'],
         'condition': lambda x: x['merge_column'] and x['check_column'],
-        'exec_time': '03:00'
     },
     'ingest-increment': {
         'workflow': 'ingest-increment',
         'out_feeds': ['increment'],
-        'exec_time': '03:00'
     },
     'transform-full': {
         'in_feeds': ['full'],
         'workflow': 'transform-full',
-        'exec_time': '05:00',
     },
     'transform-increment': {
         'in_feeds': ['increment'],
         'workflow': 'transform-increment',
-        'exec_time': '05:00',
     },
     'incremental-ingest-frozen': {
         'workflow': 'incremental-ingest-frozen',
-        'exec_time': '05:00'
+    }
+}
+
+EXEC_TIME = {
+    'CPC': {
+        'ingest-full': '00:01',
+        'ingest-increment': '00:01',
+        'transform-full': '02:00',
+        'transform-increment': '02:00'
+    },
+    'SIEBEL_NOVA': {
+        'ingest-full': '03:00',
+        'ingest-increment': '03:00',
+        'transform-full': '05:00',
+        'transform-increment': '05:00'
+    },
+    'BRM_NOVA': {
+        'ingest-full': '03:01',
+        'ingest-increment': '03:01',
+        'transform-full': '05:00',
+        'transform-increment': '05:00'
+    },
+    'GRANITE': {
+        'ingest-full': '03:01',
+        'ingest-increment': '03:01',
+        'transform-full': '05:00',
+        'transform-increment': '05:00'
+    },
+    'NIS': {
+        'ingest-full': '03:01',
+        'ingest-increment': '03:01',
+        'transform-full': '05:00',
+        'transform-increment': '05:00'
+    },
+    'PORTAL': {
+        'ingest-full': '03:01',
+        'ingest-increment': '03:01',
+        'transform-full': '05:00',
+        'transform-increment': '05:00'
     }
 }
 
@@ -174,26 +209,21 @@ FEEDS = {
        'format': 'parquet',
        'exec_time': '00:00',
    },
-#   'source_flat': {
-#        'path': '%(prefix)s/source_flat/%(source_name)s/%(schema)s_%(table)s/${YEAR}-${MONTH}-${DAY}',
-#        'format': 'flat',
-#   },
    'increment': {
         'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/ingest_date=${YEAR}-${MONTH}-${DAY}',
         'format': 'parquet',
         'exec_time': '00:00'
    },
-#   'source_increment_flat': {
-#        'path': '%(prefix)s/source_increment_flat/%(source_name)s/%(schema)s_%(table)s/${YEAR}-${MONTH}-${DAY}',
-#        'format': 'flat'
-#   },
 }
 
 ARTIFACTS='artifacts/'
 
+def get_exec_time(source, process):
+    return EXEC_TIME.get(source, {}).get(process, '03:01')
+
 def generate_utc_time(t):
-    #tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-    tomorrow = datetime.now().strftime('%Y-%m-%d')
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+    #tomorrow = datetime.now().strftime('%Y-%m-%d')
     dt = tomorrow + ' %s' % t
     start_dt = parse_date(dt)
     return (start_dt - timedelta(hours=8)).strftime('%Y-%m-%dT%H:%MZ')
@@ -252,11 +282,11 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
             i) for  i in (out_feeds or [])
         ]
     inputs_xml = '\n        '.join(
-            ['<input name="input%s" feed="%s" start="now(0,0)" end="now(0,0)"/>' % 
+            ['<input name="input%s" feed="%s" start="today(8,0)" end="today(9,0)"/>' % 
                 (t,i) for t,i in enumerate(inputs)])
     inputs_xml = '<inputs>%s</inputs>' % inputs_xml if inputs_xml else ''
     outputs_xml = '\n        '.join(
-            ['<output name="output%s" feed="%s" instance="now(0,0)"/>' %
+            ['<output name="output%s" feed="%s" instance="today(8,0)"/>' %
                 (t,i) for t,i in enumerate(outputs)])
     outputs_xml = '<outputs>%s</outputs>' % outputs_xml if outputs_xml else ''
 
@@ -394,7 +424,7 @@ def main():
                     write_falcon_process(storedir, stage, opts,
                         proc_opts.get('in_feeds', []), 
                         proc_opts.get('out_feeds', []),
-                        proc_opts['exec_time']
+                        get_exec_time(opts['source_name'], process)
                     )
 
                 for feed, feed_opts in FEEDS.items():
