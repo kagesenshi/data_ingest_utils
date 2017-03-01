@@ -13,9 +13,6 @@ def main():
     fmt = '%Y-%m-%d %H:%M:%S.0'
     out = {
       'NOW': now.strftime(fmt),
-      'YEAR': now.strftime('%Y'),
-      'MONTH': now.strftime('%m'),
-      'DAY': now.strftime('%d'),
       'UTCNOW': utcnow.strftime(fmt),
       'DATE': now.strftime('%Y-%m-%d')
     }

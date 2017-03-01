@@ -150,9 +150,6 @@ def main():
       'HIVE_CHECK_COLUMN_VALUE': hive_check_column_value,
       'CHECK_COLUMN': args.check_column,
       'CHECK_COLUMN_VALUE': check_column_value,
-      'YEAR': now.strftime('%Y'),
-      'MONTH': now.strftime('%m'),
-      'DAY': now.strftime('%d'),
       'UTCNOW': utcnow.strftime('%Y-%m-%d %H:%M:%S.0'),
       'DATE': now.strftime('%Y-%m-%d')
     }
