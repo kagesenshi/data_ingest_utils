@@ -33,7 +33,8 @@ falcon_process_template = (
     %(inputs)s
     %(outputs)s
     <properties>
-       %(properties)s
+        %(properties)s
+        <property name="oozie.processing.timezone" value="UTC" />
     </properties>
     <workflow engine="oozie" path="%(workflow_path)s"/>
     <retry policy='periodic' delay='minutes(30)' attempts='3'/>
@@ -46,11 +47,11 @@ falcon_feed_template = '''
   <availabilityFlag>_SUCCESS</availabilityFlag>
   <frequency>days(1)</frequency>
   <timezone>GMT+08:00</timezone>
-  <late-arrival cut-off='hours(1)'/>
+  <late-arrival cut-off='hours(6)'/>
   <clusters>
     <cluster name='TMDATALAKEP' type='source'>
       <validity start='%(start_utc)s' end='2099-12-31T00:00Z'/>
-      <retention limit='days(1825)' action='delete'/>
+      %(retention)s
       <locations>
         <location type='data' path='%(feed_path)s'></location>
         <location type='stats' path='/'></location>
@@ -66,9 +67,11 @@ falcon_feed_template = '''
   <properties>
     <property name='queueName' value='oozie'></property>
     <property name='jobPriority' value='NORMAL'></property>
+    <property name="oozie.processing.timezone" value="UTC" />
   </properties>
 </feed>
 '''
+
 
 
 oozie_properties = OrderedDict([
@@ -98,11 +101,9 @@ oozie_properties = OrderedDict([
     ('split_by', None),
     ('merge_column', None),
     ('check_column', None),
-    ('field_delimiter', '~^'),
     ('columns', None),
     ('columns_create', None),
     ('columns_java', None),
-    ('columns_flat', None),
 ])
 
 TYPE_MAP = {
@@ -204,13 +205,25 @@ EXEC_TIME = {
 }
 
 FEEDS = {
+   'full-retention': {
+       'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/instance_date=${YEAR}-${MONTH}-${DAY}',
+       'format': 'parquet',
+       'exec_time': '00:00',
+       'retention': 1825
+   },
+   'increment-retention': {
+        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/instance_date=${YEAR}-${MONTH}-${DAY}',
+        'format': 'parquet',
+        'exec_time': '00:00',
+        'retention': 1825
+   },
    'full': {
-       'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/ingest_date=${YEAR}-${MONTH}-${DAY}',
+       'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT/',
        'format': 'parquet',
        'exec_time': '00:00',
    },
    'increment': {
-        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/ingest_date=${YEAR}-${MONTH}-${DAY}',
+        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/CURRENT',
         'format': 'parquet',
         'exec_time': '00:00'
    },
@@ -221,10 +234,9 @@ ARTIFACTS='artifacts/'
 def get_exec_time(source, process):
     return EXEC_TIME.get(source, {}).get(process, '03:01')
 
-def generate_utc_time(t):
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-    #tomorrow = datetime.now().strftime('%Y-%m-%d')
-    dt = tomorrow + ' %s' % t
+def generate_utc_time(t, dayoffset=0):
+    tt = (datetime.now() + timedelta(days=dayoffset)).strftime('%Y-%m-%d')
+    dt = tt + ' %s' % t
     start_dt = parse_date(dt)
     return (start_dt - timedelta(hours=8)).strftime('%Y-%m-%dT%H:%MZ')
 
@@ -282,7 +294,7 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
             i) for  i in (out_feeds or [])
         ]
     inputs_xml = '\n        '.join(
-            ['<input name="input%s" feed="%s" start="today(8,0)" end="today(9,0)"/>' % 
+            ['<input name="input%s" feed="%s" start="today(8,0)" end="today(9,30)"/>' % 
                 (t,i) for t,i in enumerate(inputs)])
     inputs_xml = '<inputs>%s</inputs>' % inputs_xml if inputs_xml else ''
     outputs_xml = '\n        '.join(
@@ -296,7 +308,7 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
         'table': properties['table'],
         'ingest_type': properties['workflow'],
         'source_name': properties['source_name'],
-        'start_utc': generate_utc_time(process_time),
+        'start_utc': generate_utc_time(process_time, dayoffset=1),
         'should_end_hours': 5,
         'frequency_hours': 24,
         'process_name': default_process_name(stage, properties),
@@ -312,17 +324,21 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
 
 
 def write_falcon_feed(storedir, stage, properties, feed, feed_path, 
-        feed_format, exec_time='00:00'):
+        feed_format, exec_time='00:00', retention=None):
     filename = '%(source_name)s-%(schema)s-%(table)s.xml' % properties
     if not os.path.exists(storedir):
         os.makedirs(storedir)
     with open('%s/%s' % (storedir, filename), 'w') as f:
         params, job = falcon_feed(stage, properties, feed, 
-                    feed_path, feed_format, exec_time)
+                    feed_path, feed_format, exec_time, retention)
         f.write(job)
 
 def falcon_feed(stage, properties, feed, feed_path, feed_format, 
-            exec_time='00:00'):
+            exec_time='00:00', retention=None):
+    if retention is not None:
+        rt = "<retention limit='days(%s)' action='delete'/>" % retention
+    else:
+        rt = ''
     params = {
        'schema': properties['schema'],
        'table': properties['table'],
@@ -332,7 +348,8 @@ def falcon_feed(stage, properties, feed, feed_path, feed_format,
        'feed_path': feed_path % properties,
        'feed_type': feed,
        'feed_format': feed_format,
-       'stage': stage
+       'stage': stage,
+       'retention': rt
     }
     job = falcon_feed_template % params
     return params, job
@@ -352,16 +369,10 @@ def main():
             columns = [c['field'] for c in table['columns']]
             columns_create = []
             columns_java = []
-            columns_flat = []
             for c in table['columns']:
                 columns_create.append('`%s` %s' % (c['field'] , TYPE_MAP[c['type']]))
                 if JAVA_TYPE_MAP.get(c['type'], None):
                     columns_java.append('%s=%s' % (c['field'], JAVA_TYPE_MAP[c['type']]))
-
-                if TYPE_MAP[c['type']] == 'STRING':
-                    columns_flat.append("regexp_replace(`%s`,'\\\\n',' ') AS `%s`" % (c['field'],c['field']))
-                else:
-                    columns_flat.append("`%s`" % c['field'])
 
             source_name = ds['datasource']['name'].replace(' ','_')
             username = ds['datasource']['login']
@@ -381,17 +392,12 @@ def main():
                 'columns_java': ','.join(columns_java),
                 'columns_create': ','.join(columns_create),
                 'columns_create_newline': ',\n    '.join(columns_create),
-                'columns_flat': ','.join(columns_flat),
                 'columns': ','.join(['`%s`' % c['field'] for c in table['columns']]),
                 'merge_column': table['merge_key'],
                 'check_column': table['check_column'],
                 'direct': ds['direct']
             }
    
-            if params['source_name'] == 'CPC' and params['schema'] == 'SIEBEL' and params['table'] == 'S_CONTACT':
-                params['field_delimiter'] = '^~'
-
-
             for stage, conf in STAGES.items():
 
                 if stage.lower() == 'test' and (
@@ -433,7 +439,8 @@ def main():
                     storedir = '%s/%s-falconfeed-%s' % (ARTIFACTS, stage, feed)
                     write_falcon_feed(storedir, stage, opts, feed,
                                     feed_opts['path'], feed_opts['format'],
-                                    feed_opts['exec_time'])
+                                    feed_opts['exec_time'],
+                                    feed_opts.get('retention', None))
 
     open('hive-create.sql', 'w').write('\n'.join(hive_create))
 
