@@ -151,7 +151,7 @@ def main():
       'CHECK_COLUMN': args.check_column,
       'CHECK_COLUMN_VALUE': check_column_value,
       'UTCNOW': utcnow.strftime('%Y-%m-%d %H:%M:%S.0'),
-      'DATE': utcnow.strftime('%Y-%m-%d')
+      'DATE': now.strftime('%Y-%m-%d')
     }
 
     print '\n'.join(['%s=%s' % (k, v) for k,v in out.items()])

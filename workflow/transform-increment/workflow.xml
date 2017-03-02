@@ -162,7 +162,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
     <action name="prepDistcp">
         <fs>
            <name-node>${nameNode}</name-node>
-            <delete path="${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}"></delete>
+            <delete path="${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}"></delete>
         </fs>
         <ok to="distcp"/>
         <error to="kill"/>
@@ -183,7 +183,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             </property>
          </configuration>
             <arg>${nameNode}/${outputdir}/CURRENT/</arg>
-            <arg>${nameNode}/${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}/</arg>
+            <arg>${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
         </distcp>
         <ok to="markRawDataReady"/>
         <error to="kill"/>
@@ -192,7 +192,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
     <action name="markRawDataReady">
         <fs>
            <name-node>${nameNode}</name-node>
-            <touchz path="${nameNode}/${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+            <touchz path="${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
         </fs>
         <ok to="exportORC"/>
         <error to="kill"/>
@@ -211,7 +211,7 @@ CREATE DATABASE IF NOT EXISTS ${targetdb};
 
 CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
     ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}';
+) STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
 
 CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table} (
    ${columns_create}

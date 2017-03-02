@@ -159,7 +159,7 @@
       <fs>
          <name-node>${nameNode}</name-node>
          <job-xml>conf/oozie.xml</job-xml>
-         <delete path="${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}"></delete>
+         <delete path="${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}"></delete>
       </fs>
       <ok to="preserveIncrement"/>
       <error to="kill"/>
@@ -180,7 +180,7 @@
             </property>
          </configuration>
          <arg>${nameNode}/${outputdir}/INCREMENT/CURRENT/</arg>
-         <arg>${nameNode}/${outputdir}/INCREMENT/instance_date=${wf:actionData('getValues')['DATE']}/</arg>
+         <arg>${nameNode}/${outputdir}/INCREMENT/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
       </distcp>
       <ok to="markIncrementDataReady"/>
       <error to="kill"/>
@@ -189,7 +189,7 @@
       <fs>
          <name-node>${nameNode}</name-node>
          <job-xml>conf/oozie.xml</job-xml>
-         <touchz path="${outputdir}/INCREMENT/instance_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+         <touchz path="${outputdir}/INCREMENT/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
          <touchz path="${outputdir}/INCREMENT/CURRENT/_SUCCESS"></touchz>
          <touchz path="${outputdir}/INCREMENT/CURRENT/_READY_FOR_TRANSFORM"></touchz>
       </fs>

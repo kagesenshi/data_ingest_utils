@@ -123,7 +123,7 @@
    <action name="prepDistcp">
       <fs>
          <name-node>${nameNode}</name-node>
-         <delete path="${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}"></delete>
+         <delete path="${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}"></delete>
       </fs>
       <ok to="distcp"/>
       <error to="kill"/>
@@ -144,7 +144,7 @@
             </property>
          </configuration>
          <arg>${nameNode}/${outputdir}/CURRENT/</arg>
-         <arg>${nameNode}/${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}/</arg>
+         <arg>${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
       </distcp>
       <ok to="markRawDataReady"/>
       <error to="kill"/>
@@ -152,7 +152,7 @@
    <action name="markRawDataReady">
       <fs>
          <name-node>${nameNode}</name-node>
-         <touchz path="${nameNode}/${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+         <touchz path="${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
          <touchz path="${nameNode}/${outputdir}/CURRENT/_SUCCESS"></touchz>
          <touchz path="${nameNode}/${outputdir}/CURRENT/_READY_FOR_TRANSFORM"></touchz>
       </fs>
