@@ -231,6 +231,8 @@ FEEDS = {
 
 ARTIFACTS='artifacts/'
 
+FOREVER=36135
+
 def get_exec_time(source, process):
     return EXEC_TIME.get(source, {}).get(process, '03:01')
 
@@ -324,7 +326,7 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
 
 
 def write_falcon_feed(storedir, stage, properties, feed, feed_path, 
-        feed_format, exec_time='00:00', retention=None):
+        feed_format, exec_time='00:00', retention=FOREVER):
     filename = '%(source_name)s-%(schema)s-%(table)s.xml' % properties
     if not os.path.exists(storedir):
         os.makedirs(storedir)
@@ -334,7 +336,7 @@ def write_falcon_feed(storedir, stage, properties, feed, feed_path,
         f.write(job)
 
 def falcon_feed(stage, properties, feed, feed_path, feed_format, 
-            exec_time='00:00', retention=None):
+            exec_time='00:00', retention=FOREVER):
     if retention is not None:
         rt = "<retention limit='days(%s)' action='delete'/>" % retention
     else:
@@ -440,7 +442,7 @@ def main():
                     write_falcon_feed(storedir, stage, opts, feed,
                                     feed_opts['path'], feed_opts['format'],
                                     feed_opts['exec_time'],
-                                    feed_opts.get('retention', None))
+                                    feed_opts.get('retention', FOREVER))
 
     open('hive-create.sql', 'w').write('\n'.join(hive_create))
 
