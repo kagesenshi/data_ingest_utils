@@ -96,6 +96,7 @@ FROM ${targetdb}.${schema}_${table}_CURRENT;
       <fs>
          <name-node>${nameNode}</name-node>
          <delete path="${readyMarker}"></delete>
+         <delete path="${outputdir}/CURRENT/_SUCCESS"></delete>
       </fs>
       <ok to="end"/>
       <error to="kill"/>

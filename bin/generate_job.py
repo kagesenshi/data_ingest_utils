@@ -10,13 +10,12 @@ from datetime import datetime, timedelta
 from dateutil.parser import parse as parse_date
 
 hive_create_template = '''
-drop table if exists staging.%(source_name)s_%(schema)s_%(table)s;
-create external table staging.%(source_name)s_%(schema)s_%(table)s (
+drop table if exists %(targetdb)s.%(schema)s_%(table)s;
+create table %(targetdb)s.%(schema)s_%(table)s (
    %(columns_create_newline)s
-)            
-STORED AS PARQUET
-LOCATION '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
+) STORED AS ORC;
 '''
+# LOCATION '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
 
 falcon_process_template = (
 '''<process xmlns='uri:falcon:process:0.1' name="%(process_name)s">
@@ -402,18 +401,15 @@ def main():
    
             for stage, conf in STAGES.items():
 
-                if stage.lower() == 'test' and (
-
-                    params['source_name'] == 'BRM_NOVA') and (
-                    params['table'] in ['ITEM_T', 'EVENT_BAL_IMPACT_T',
-                                        'PROFILE_T']):
+                if stage in ['prod']:
                     opts = params.copy()
+                    opts['stagingdb'] = conf['stagingdb']
+                    opts['targetdb'] = conf['targetdb'] % params
                     opts['prefix'] = conf['prefix']
-
                     hive_create.append(
                         hive_create_template % opts
                     )
-
+    
                 for process, proc_opts in PROCESSES.items():
                     opts = params.copy()
                     opts['prefix'] = conf['prefix']
