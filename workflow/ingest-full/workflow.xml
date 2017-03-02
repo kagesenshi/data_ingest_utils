@@ -153,6 +153,7 @@
       <fs>
          <name-node>${nameNode}</name-node>
          <touchz path="${nameNode}/${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+         <touchz path="${nameNode}/${outputdir}/CURRENT/_SUCCESS"></touchz>
          <touchz path="${nameNode}/${outputdir}/CURRENT/_READY_FOR_TRANSFORM"></touchz>
       </fs>
       <ok to="end"/>

@@ -190,6 +190,7 @@
          <name-node>${nameNode}</name-node>
          <job-xml>conf/oozie.xml</job-xml>
          <touchz path="${outputdir}/INCREMENT/instance_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+         <touchz path="${outputdir}/INCREMENT/CURRENT/_SUCCESS"></touchz>
          <touchz path="${outputdir}/INCREMENT/CURRENT/_READY_FOR_TRANSFORM"></touchz>
       </fs>
       <ok to="end"/>
