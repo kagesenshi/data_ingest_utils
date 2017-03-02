@@ -67,7 +67,7 @@ CREATE DATABASE IF NOT EXISTS ${targetdb};
 
 CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
     ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}';
+) STORED AS PARQUET LOCATION '${outputdir}/instance_date=${wf:actionData('getValues')['DATE']}';
 
 CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table} (
     ${columns_create}

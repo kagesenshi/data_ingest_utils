@@ -14,7 +14,7 @@ def main():
     out = {
       'NOW': now.strftime(fmt),
       'UTCNOW': utcnow.strftime(fmt),
-      'DATE': now.strftime('%Y-%m-%d')
+      'DATE': utcnow.strftime('%Y-%m-%d')
     }
 
     print '\n'.join(['%s=%s' % (k, v) for k,v in out.items()])
