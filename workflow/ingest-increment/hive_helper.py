@@ -11,9 +11,18 @@ import re
 
 CREATE_SCRIPT='''
 SET tez.queue.name=%(queue)s;
-create temporary external table default.%(tablename)s (
-    %(table_columns)s
-) STORED AS PARQUET
+
+CREATE TEMPORARY TABLE default.%(tablename)s_SCHEMA
+ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='%(nameNode)s/%(path)s/.metadata/schema.avsc'
+);
+
+CREATE TEMPORARY EXTERNAL TABLE default.%(tablename)s LIKE
+    default.%(tablename)s_SCHEMA
+STORED AS PARQUET
 LOCATION "%(path)s";
 '''
 
@@ -99,9 +108,9 @@ def execute_query(query, **kwargs):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-p','--path', dest='path', required=True)
-    parser.add_argument('-d','--table-columns', dest='table_columns', required=True)
     parser.add_argument('-c','--check_column', dest='check_column', required=True)
     parser.add_argument('-o','--operation', dest='operation', default='max')
+    parser.add_argument('-n','--namenode', dest='namenode', required=True)
     parser.add_argument('-b','--backdate-days', dest='backdate', default=3,
                                     type=int)
     parser.add_argument('-Q','--queue', dest='queue', default='default')
@@ -120,11 +129,11 @@ def main():
 
     params = {
         'path': args.path,
-        'table_columns': args.table_columns,
         'check_column': args.check_column,
         'op': args.operation,
         'backdate': args.backdate,
-        'queue': args.queue
+        'queue': args.queue,
+        'nameNode': args.namenode
     }
 
     data_type = guess_type(params)

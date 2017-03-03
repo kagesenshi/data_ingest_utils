@@ -22,10 +22,6 @@
             <value>${source_name}_${schema}_${table}</value>
          </property>
          <property>
-            <name>hivejdbc</name>
-            <value>jdbc:hive2://localhost:10000/default</value>
-         </property>
-         <property>
             <name>readyMarker</name>
             <value>${outputdir}/INCREMENT/CURRENT/_READY_FOR_TRANSFORM</value>
          </property>
@@ -48,10 +44,12 @@
          <argument>${outputdir}/CURRENT</argument>
          <argument>-c</argument>
          <argument>${check_column}</argument>
-         <argument>-d</argument>
-         <argument>${columns_create}</argument>
          <argument>-b</argument>
          <argument>${backdate}</argument>
+         <argument>-n</argument>
+         <argument>${nameNode}</argument>
+         <argument>-Q</argument>
+         <argument>batch</argument>
          <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
          <file>hive_helper.py</file>
          <capture-output/>
@@ -86,16 +84,25 @@
             <job-xml>conf/oozie.xml</job-xml>
             <query>
 SET tez.queue.name=batch;
+SET hive.support.quoted.identifiers=none;
+
+CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+   ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='${nameNode}/${outputdir}/CURRENT/.metadata/schema.avsc'
+);
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_CURRENT;
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT 
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_INCREMENT;
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/INCREMENT/CURRENT';
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT 
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/INCREMENT/CURRENT';
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
@@ -112,12 +119,14 @@ SELECT t2.* FROM
 WHERE t2.hive_rn=1;
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED 
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
 
 INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
-SELECT ${columns} FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+SELECT 
+   `(hive_rn)?+.+`
+FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             </query>
@@ -209,16 +218,26 @@ SET tez.queue.name=batch;
 
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 
-CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
+CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+   ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='${nameNode}/${outputdir}/CURRENT/.metadata/schema.avsc'
+);
 
-CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table} (
-   ${columns_create}
-) STORED AS ORC;
+CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT 
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
+
+CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table}
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS ORC;
 
 INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
-SELECT ${columns} FROM ${targetdb}.${schema}_${table}_CURRENT;
+SELECT
+   *
+FROM ${targetdb}.${schema}_${table}_CURRENT;
            </query>
         </hive>
         <ok to="markORCDataReady"/>

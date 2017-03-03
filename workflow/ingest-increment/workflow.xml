@@ -47,10 +47,10 @@
          <argument>${outputdir}/CURRENT</argument>
          <argument>-c</argument>
          <argument>${check_column}</argument>
-         <argument>-d</argument>
-         <argument>${columns_create}</argument>
          <argument>-b</argument>
          <argument>${backdate}</argument>
+         <argument>-n</argument>
+         <argument>${nameNode}</argument>
          <argument>-Q</argument>
          <argument>batch</argument>
          <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>

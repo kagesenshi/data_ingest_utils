@@ -22,10 +22,6 @@
             <value>${source_name}_${schema}_${table}</value>
          </property>
          <property>
-            <name>hivejdbc</name>
-            <value>jdbc:hive2://localhost:10000/default</value>
-         </property>
-         <property>
             <name>readyMarker</name>
             <value>${outputdir}/CURRENT/_READY_FOR_TRANSFORM</value>
          </property>
@@ -65,17 +61,25 @@ SET tez.queue.name=batch;
 
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 
-CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
+CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+   ROW FORMAT SERDE 
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe' 
+STORED AS AVRO 
+TBLPROPERTIES (
+   'avro.schema.url'='hdfs://${outputdir}/CURRENT/.metadata/schema.avsc'
+); 
 
-CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table} (
-    ${columns_create}
-) STORED AS ORC;
+CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT 
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
+
+CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table}
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS ORC;
 
 INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
-SELECT
-    ${columns}
+SELECT 
+   *
 FROM ${targetdb}.${schema}_${table}_CURRENT;
             </query>
         </hive>

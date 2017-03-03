@@ -77,7 +77,7 @@ oozie_properties = OrderedDict([
     ('resourceManager','hdpmaster1.tm.com.my:8050'),
     ('jobTracker','hdpmaster1.tm.com.my:8050'),
     ('nameNode','hdfs://hdpmaster1.tm.com.my:8020'),
-    ('hivejdbc', 'jdbc:hive2://hdpmaster1.tm.com.my:10000/default'),
+#    ('hivejdbc', 'jdbc:hive2://hdpmaster1.tm.com.my:10000/default'),
     ('oozie.wf.application.path','/user/trace/workflows/%(workflow)s/'),
     ('oozie.use.system.libpath','true'),
     ('user.name','trace'),
@@ -100,8 +100,8 @@ oozie_properties = OrderedDict([
     ('split_by', None),
     ('merge_column', None),
     ('check_column', None),
-    ('columns', None),
-    ('columns_create', None),
+#    ('columns', None),
+#    ('columns_create', None),
     ('columns_java', None),
 ])
 
