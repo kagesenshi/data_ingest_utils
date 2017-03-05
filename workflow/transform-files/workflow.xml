@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="T-FILES-${source_name}-${schema}-${table}">
+    <parameters>
+        <property>
+            <name>prefix</name>
+            <value>/user/trace/development/</value>
+        </property>
+        <property>
+            <name>stagingdb</name>
+            <value>staging_dev</value>
+        </property>
+        <property>
+            <name>targetdb</name>
+            <value>${source_name}_dev</value>
+        </property>
+        <property>
+            <name>outputdir</name>
+            <value>${prefix}/source/${source_name}/${schema}_${table}/</value>
+        </property>
+        <property>
+            <name>sourcedir</name>
+            <value>${prefix}/source_files/${source_name}/${schema}_${table}/PARQUET/</value>
+        </property>
+        <property>
+            <name>staging_tbl</name>
+            <value>${source_name}_${schema}_${table}</value>
+         </property>
+        <property>
+            <name>reconcile</name>
+            <value>append</value>
+         </property>
+      </parameters>
+
+    <start to="getValues"/>
+ 
+    <action name="getValues">
+      <shell
+         xmlns="uri:oozie:shell-action:0.3">
+         <job-tracker>${resourceManager}</job-tracker>
+         <name-node>${nameNode}</name-node>
+         <job-xml>conf/oozie.xml</job-xml>
+         <exec>python</exec>
+         <argument>date_helper.py</argument>
+         <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
+         <file>date_helper.py</file>
+         <capture-output/>
+      </shell>
+      <ok to="removeExisting"/>
+      <error to="kill"/>
+   </action>
+
+    <action name="removeExisting">
+        <fs>
+            <name-node>${nameNode}</name-node>
+            <delete path="${outputdir}/CURRENT/"></delete>
+        </fs>
+        <ok to="checkReconcile"/>
+        <error to="kill"/>
+     </action>
+
+     <decision name="checkReconcile">
+         <switch>
+            <case to="hiveReconcile">
+               ${reconcile eq 'merge'}
+            </case>
+            <default to="hiveReconcileAppend"/>
+         </switch>
+     </decision>
+
+    <action name="hiveReconcile">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <job-xml>conf/oozie.xml</job-xml>
+            <query>
+SET tez.queue.name=batch;
+SET hive.support.quoted.identifiers=none;
+
+CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+   ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='${nameNode}/${sourcedir}/.metadata/schema.avsc'
+);
+
+DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_SOURCE;
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_SOURCE
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${sourcedir}';
+
+DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
+SELECT t2.* FROM
+   (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY 
+      ${check_column} DESC) hive_rn
+      FROM ${source_name}_${schema}_${table}_SOURCE t1) t2
+WHERE t2.hive_rn=1;
+
+DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED 
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
+
+INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
+SELECT 
+   `(hive_rn)?+.+`
+FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+
+DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+            </query>
+        </hive>
+        <ok to="copyAvroMetadata"/>
+        <error to="kill"/>
+     </action>
+ 
+     <action name="hiveReconcileAppend">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <job-xml>conf/oozie.xml</job-xml>
+            <query>
+SET tez.queue.name=batch;
+SET hive.support.quoted.identifiers=none;
+
+CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+   ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='${nameNode}/${sourcedir}/.metadata/schema.avsc'
+);
+
+DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_SOURCE;
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_SOURCE
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${sourcedir}';
+
+DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
+CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED 
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
+
+INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
+SELECT * from ${source_name}_${schema}_${table}_SOURCE;
+            </query>
+        </hive>
+        <ok to="copyAvroMetadata"/>
+        <error to="kill"/>
+     </action>
+
+    <action name="copyAvroMetadata">
+        <distcp
+            xmlns="uri:oozie:distcp-action:0.2">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+            <property>
+               <name>mapreduce.job.queuename</name>
+               <value>distcp</value>
+            </property>
+         </configuration>
+         <arg>${nameNode}/${sourcedir}/.metadata</arg>
+            <arg>${nameNode}/${outputdir}/RECONCILED/</arg>
+        </distcp>
+        <ok to="moveToCurrent"/>
+        <error to="kill"/>
+     </action>
+
+    <action name="moveToCurrent">
+        <fs>
+           <name-node>${nameNode}</name-node>
+           <move source="${nameNode}/${outputdir}/RECONCILED" 
+                    target="${nameNode}/${outputdir}/CURRENT"></move>
+        </fs>
+        <ok to="prepDistcp"/>
+        <error to="kill"/>
+    </action>
+    <action name="prepDistcp">
+        <fs>
+           <name-node>${nameNode}</name-node>
+            <delete path="${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}"></delete>
+        </fs>
+        <ok to="distcp"/>
+        <error to="kill"/>
+    </action>
+    <action name="distcp">
+        <distcp
+            xmlns="uri:oozie:distcp-action:0.2">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+         <configuration>
+            <property>
+               <name>oozie.launcher.mapreduce.job.queuename</name>
+               <value>oozie</value>
+            </property>
+            <property>
+               <name>mapreduce.job.queuename</name>
+               <value>distcp</value>
+            </property>
+         </configuration>
+            <arg>${nameNode}/${outputdir}/CURRENT/</arg>
+            <arg>${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
+        </distcp>
+        <ok to="markRawDataReady"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="markRawDataReady">
+        <fs>
+           <name-node>${nameNode}</name-node>
+            <touchz path="${nameNode}/${outputdir}/ingest_date=${wf:actionData('getValues')['DATE']}/_SUCCESS"></touchz>
+        </fs>
+        <ok to="exportORC"/>
+        <error to="kill"/>
+    </action>
+
+    <action name="exportORC">
+        <hive
+            xmlns="uri:oozie:hive-action:0.6">
+            <job-tracker>${resourceManager}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <job-xml>conf/oozie.xml</job-xml>
+            <query>
+SET tez.queue.name=batch;
+
+CREATE DATABASE IF NOT EXISTS ${targetdb};
+
+CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+   ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='${nameNode}/${outputdir}/CURRENT/.metadata/schema.avsc'
+);
+
+CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT 
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
+
+CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table}
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS ORC;
+
+INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
+SELECT
+   *
+FROM ${targetdb}.${schema}_${table}_CURRENT;
+           </query>
+        </hive>
+        <ok to="markORCDataReady"/>
+        <error to="revertPrevious"/>
+    </action>
+
+    <action name="markORCDataReady">
+        <fs>
+           <name-node>${nameNode}</name-node>
+            <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
+        </fs>
+        <ok to="end"/>
+        <error to="kill"/>
+     </action>
+
+    <action name="revertPrevious">
+        <fs>
+           <name-node>${nameNode}</name-node>
+           <delete path="${nameNode}/${outputdir}/ERROR"></delete>
+           <move source="${nameNode}/${outputdir}/CURRENT"
+                  target="${nameNode}/${outputdir}/ERROR"></move>
+           <move source="${nameNode}/${outputdir}/PREVIOUS" 
+                    target="${nameNode}/${outputdir}/CURRENT"></move>
+        </fs>
+        <ok to="kill"/>
+        <error to="kill"/>
+    </action>
+
+    <kill name="kill">
+        <message>${wf:errorMessage(wf:lastErrorNode())}</message>
+    </kill>
+    <end name="end"/>
+</workflow-app>

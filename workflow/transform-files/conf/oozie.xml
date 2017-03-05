@@ -1,0 +1,22 @@
+<configuration>
+   <property>
+      <name>oozie.launcher.mapreduce.job.queuename</name>
+      <value>oozie</value>
+   </property>
+   <property>
+      <name>mapreduce.job.queuename</name>
+      <value>oozie</value>
+   </property>
+   <property>
+      <name>mapred.job.queuename</name>
+      <value>oozie</value>
+   </property>
+   <property>
+      <name>mapred.reduce.tasks</name>
+      <value>-1</value>
+   </property>
+   <property>
+      <name>tez.queue.name</name>
+      <value>batch</value>
+   </property>
+</configuration>
