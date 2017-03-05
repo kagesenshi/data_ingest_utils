@@ -80,11 +80,6 @@ oozie_properties = OrderedDict([
 #    ('hivejdbc', 'jdbc:hive2://hdpmaster1.tm.com.my:10000/default'),
     ('oozie.wf.application.path','/user/trace/workflows/%(workflow)s/'),
     ('oozie.use.system.libpath','true'),
-    ('user.name','trace'),
-    ('mapreduce.job.user.name','trace'),
-    ('oozie.launcher.mapreduce.job.queuename', 'oozie'),
-    ('mapred.job.queuename', 'oozie'),
-    ('queueName','oozie'),
     ('prefix', None),
     ('jdbc_uri','jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
     ('username', None),
@@ -105,22 +100,12 @@ oozie_properties = OrderedDict([
     ('columns_java', None),
 ])
 
-TYPE_MAP = {
-    'VARCHAR2': 'STRING',
-    'DATE': 'STRING',
-    'NUMBER': 'STRING',
-    'CHAR': 'STRING',
-    'LONG': 'BIGINT',
-    'CLOB': 'BINARY',
-    'RAW': 'BINARY'
-}
-
 JAVA_TYPE_MAP = {
-    'VARCHAR2': 'String',
+#    'VARCHAR2': 'String',
     'DATE': 'String',
-    'NUMBER': 'String',
-    'CHAR': 'String',
-    'LONG': 'Long',
+#    'NUMBER': 'String',
+#    'CHAR': 'String',
+#    'LONG': 'Long',
 }
 
 STAGES = {
@@ -371,7 +356,6 @@ def main():
             columns_create = []
             columns_java = []
             for c in table['columns']:
-                columns_create.append('`%s` %s' % (c['field'] , TYPE_MAP[c['type']]))
                 if JAVA_TYPE_MAP.get(c['type'], None):
                     columns_java.append('%s=%s' % (c['field'], JAVA_TYPE_MAP[c['type']]))
 

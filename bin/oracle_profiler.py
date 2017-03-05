@@ -10,6 +10,8 @@ import getpass
 import os
 import json
 
+EXCLUDE_TABLES=['TOAD_PLAN_TABLE', 'TOAD_PLAN_SQL', 'PLAN_TABLE', 'PROCOM']
+
 def now():
     return datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
 
@@ -75,7 +77,8 @@ class OracleProfiler(object):
         """ % self.ds['schema'])
         tables = []
         for r in res:
-            tables.append(r[1])
+            if r[1] not in EXCLUDE_TABLES:
+                tables.append(r[1])
         return tables
 
     def _profile_table(self, cursor, table_name):
