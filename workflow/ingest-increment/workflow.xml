@@ -105,10 +105,10 @@
          <arg>${password}</arg>
          <arg>--as-parquetfile</arg>
          <arg>--direct</arg>
-         <arg>--map-column-java</arg>
-         <arg>${columns_java}</arg>
          <arg>--where</arg>
          <arg>${check_column} &gt; ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}</arg>
+         <arg>${firstNotNull(wf:conf('columns_java'),'') != '' ? '--map-column-java' : ''}</arg>
+         <arg>${wf:conf('columns_java')}</arg>
       </sqoop>
       <ok to="moveToCurrent"/>
       <error to="kill"/>
@@ -135,10 +135,10 @@
          <arg>--password</arg>
          <arg>${password}</arg>
          <arg>--as-parquetfile</arg>
-         <arg>--map-column-java</arg>
-         <arg>${columns_java}</arg>
          <arg>--where</arg>
          <arg>${check_column} &gt; ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}</arg>
+         <arg>${firstNotNull(wf:conf('columns_java'),'') != '' ? '--map-column-java' : ''}</arg>
+         <arg>${wf:conf('columns_java')}</arg>
       </sqoop>
       <ok to="moveToCurrent"/>
       <error to="kill"/>
