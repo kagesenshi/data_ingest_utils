@@ -64,7 +64,7 @@
    <action name="removeExisting">
       <fs>
          <name-node>${nameNode}</name-node>
-         <delete path="${outputdir}/INCREMENT/CURRENT/"></delete>
+         <delete path="${outputdir}/INCREMENT/CURRENT/_SUCCESS"></delete>
          <delete path="${outputdir}/INCREMENT/TEMP/"></delete>
          <delete path="${outputdir}/RECONCILED/"></delete>
       </fs>

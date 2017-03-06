@@ -33,7 +33,7 @@
    <action name="removeExisting">
       <fs>
          <name-node>${nameNode}</name-node>
-         <delete path="${outputdir}/CURRENT/"></delete>
+         <delete path="${outputdir}/CURRENT/_SUCCESS"></delete>
          <delete path="${outputdir}/TEMP/"></delete>
       </fs>
       <ok to="select-sqoop"/>
