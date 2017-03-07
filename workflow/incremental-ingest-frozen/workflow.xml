@@ -30,10 +30,10 @@
             <argument>${outputdir}/CURRENT</argument>
             <argument>-c</argument>
             <argument>${check_column}</argument>
-            <argument>-d</argument>
-            <argument>${columns_create}</argument>
             <argument>-b</argument>
             <argument>${backdate}</argument>
+            <argument>-n</argument>
+            <argument>${nameNode}</argument>
             <argument>-Q</argument>
             <argument>batch</argument>
             <env-var>HADOOP_USER_NAME=${wf:user()}</env-var>
@@ -77,10 +77,10 @@
             <arg>${password}</arg>
             <arg>--as-parquetfile</arg>
             <arg>--direct</arg>
-            <arg>--map-column-java</arg>
-            <arg>${columns_java}</arg>
             <arg>--where</arg>
             <arg>${check_column} &gt; ${wf:actionData('getValues')['CHECK_COLUMN_VALUE']}</arg>
+            <arg>${firstNotNull(wf:conf('columns_java'),'') != '' ? '--map-column-java' : ''}</arg>
+            <arg>${wf:conf('columns_java')}</arg>
         </sqoop>
         <ok to="hiveReconcile"/>
         <error to="kill"/>
@@ -98,17 +98,28 @@
                 </property>
             </configuration>
             <query>
+SET tez.queue.name=batch;
+SET hive.support.quoted.identifiers=none;
+
 use increment_test;
 
+CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+   ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='${nameNode}/${outputdir}/CURRENT/.metadata/schema.avsc'
+);
+
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_CURRENT;
-CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
+CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_CURRENT
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_INCREMENT;
-CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/INCREMENT';
+CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_INCREMENT
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/INCREMENT';
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
@@ -127,12 +138,13 @@ SELECT t2.* FROM
 WHERE t2.hive_rn=1;
 
 DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
-CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED (
-    ${columns_create}
-) STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
+CREATE EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
 
 INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
-SELECT ${columns} FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+SELECT `(hive_rn)?+.+`
+FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 
 DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
             </query>
