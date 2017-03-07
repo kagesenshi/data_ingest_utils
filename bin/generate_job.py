@@ -19,7 +19,7 @@ create table %(targetdb)s.%(schema)s_%(table)s (
 
 falcon_process_template = (
 '''<process xmlns='uri:falcon:process:0.1' name="%(process_name)s">
-    <tags>entity_type=process,activity_type=ingestion,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,ingest_type=%(ingest_type)s</tags>
+    <tags>entity_type=process,activity_type=ingestion,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,workflow=%(workflow)s</tags>
     <clusters>
         <cluster name="TMDATALAKEP">
             <validity start="%(start_utc)s" end="2099-12-31T00:00Z"/>
@@ -296,7 +296,7 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
     params = {
         'schema': properties['schema'],
         'table': properties['table'],
-        'ingest_type': properties['workflow'],
+        'workflow': properties['workflow'],
         'source_name': properties['source_name'],
         'start_utc': generate_utc_time(process_time, dayoffset=1),
         'should_end_hours': 5,
