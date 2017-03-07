@@ -35,7 +35,7 @@ falcon_process_template = (
         %(properties)s
         <property name="oozie.processing.timezone" value="UTC" />
     </properties>
-    <workflow engine="oozie" path="%(workflow_path)s"/>
+    <workflow name="%(workflow_name)s" engine="oozie" path="%(workflow_path)s"/>
     <retry policy='periodic' delay='minutes(30)' attempts='3'/>
 </process>
 ''')
@@ -193,13 +193,13 @@ FEEDS = {
        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/instance_date=${YEAR}-${MONTH}-${DAY}',
        'format': 'parquet',
        'exec_time': '00:00',
-       'retention': 1825
+       'retention': 365
    },
    'increment-retention': {
         'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/instance_date=${YEAR}-${MONTH}-${DAY}',
         'format': 'parquet',
         'exec_time': '00:00',
-        'retention': 1825
+        'retention': 365
    },
    'full': {
        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT/',
@@ -255,6 +255,10 @@ def oozie_config(properties):
     for k,v in prop.items():
         if k in properties.keys():
             prop[k] = properties[k]
+    prop['appName'] = (
+        properties.get('appName', None) or 
+        '%(workflow)-%(source_name)s-%(schema)s-%(table)s' % properties
+    )
     return prop
 
 def write_falcon_process(storedir, stage, properties, in_feeds=None,
@@ -299,6 +303,7 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
         'frequency_hours': 24,
         'process_name': default_process_name(stage, properties),
         'workflow_path': prop['oozie.wf.application.path'],
+        'workflow_name': prop['appName'],
         'stage' : stage,
         'properties': '\n       '.join(
             ['<property name="%s" value="%s"/>' % (k,v) for (k,v) in prop.items() if '.' not in k]),
