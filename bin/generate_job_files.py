@@ -8,14 +8,7 @@ import os
 import shutil
 from datetime import datetime, timedelta
 from dateutil.parser import parse as parse_date
-
-hive_create_template = '''
-drop table if exists %(targetdb)s.%(schema)s_%(table)s;
-create table %(targetdb)s.%(schema)s_%(table)s (
-   %(columns_create_newline)s
-) STORED AS ORC;
-'''
-# LOCATION '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
+import csv
 
 falcon_process_template = (
 '''<process xmlns='uri:falcon:process:0.1' name="%(process_name)s">
@@ -77,27 +70,17 @@ oozie_properties = OrderedDict([
     ('resourceManager','hdpmaster1.tm.com.my:8050'),
     ('jobTracker','hdpmaster1.tm.com.my:8050'),
     ('nameNode','hdfs://hdpmaster1.tm.com.my:8020'),
-#    ('hivejdbc', 'jdbc:hive2://hdpmaster1.tm.com.my:10000/default'),
     ('oozie.wf.application.path','/user/trace/workflows/%(workflow)s/'),
     ('oozie.use.system.libpath','true'),
     ('prefix', None),
-    ('jdbc_uri','jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
-    ('username', None),
-    ('password',None),
     ('source_name', None),
-    ('direct', None),
     ('targetdb', None),
     ('stagingdb', None),
-    ('backdate', '50'),
     ('schema', None),
     ('table', None),
-    ('mapper', None),
-    ('split_by', None),
     ('merge_column', None),
     ('check_column', None),
-#    ('columns', None),
-#    ('columns_create', None),
-    ('columns_java', None),
+    ('reconcile', 'merge'),
 ])
 
 JAVA_TYPE_MAP = {
@@ -127,30 +110,13 @@ STAGES = {
 }
 
 PROCESSES = {
-    'ingest-full': {
-        'workflow': 'ingest-full',
-        'out_feeds': ['full'],
-        'condition': lambda x: x['merge_column'] and x['check_column'],
+    'transform-files': {
+        'workflow': 'transform-files',
     },
-    'ingest-increment': {
-        'workflow': 'ingest-increment',
-        'out_feeds': ['increment'],
-    },
-    'transform-full': {
-        'in_feeds': ['full'],
-        'workflow': 'transform-full',
-    },
-    'transform-increment': {
-        'in_feeds': ['increment'],
-        'workflow': 'transform-increment',
-    },
-    'incremental-ingest-frozen': {
-        'workflow': 'incremental-ingest-frozen',
-    }
 }
 
 EXEC_TIME = {
-    'CPC': {
+    'EAI': {
         'ingest-full': '00:01',
         'ingest-increment': '00:01',
         'transform-full': '02:00',
@@ -195,25 +161,25 @@ FEEDS = {
        'exec_time': '00:00',
        'retention': 365
    },
-   'increment-retention': {
-        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/instance_date=${YEAR}-${MONTH}-${DAY}',
-        'format': 'parquet',
-        'exec_time': '00:00',
-        'retention': 365
-   },
+#   'increment-retention': {
+#        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/instance_date=${YEAR}-${MONTH}-${DAY}',
+#        'format': 'parquet',
+#        'exec_time': '00:00',
+#        'retention': 365
+#   },
    'full': {
        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT/',
        'format': 'parquet',
        'exec_time': '00:00',
    },
-   'increment': {
-        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/CURRENT',
-        'format': 'parquet',
-        'exec_time': '00:00'
-   },
+#   'increment': {
+#        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/CURRENT',
+#        'format': 'parquet',
+#        'exec_time': '00:00'
+#   },
 }
 
-ARTIFACTS='artifacts/'
+ARTIFACTS='files-artifacts/'
 
 FOREVER=36135
 
@@ -250,7 +216,6 @@ def write_oozie_config(storedir, properties):
 
 def oozie_config(properties):
     prop = oozie_properties.copy()
-    prop['jdbc_uri'] = prop['jdbc_uri'] % properties
     prop['oozie.wf.application.path'] = properties['wfpath']
     for k,v in prop.items():
         if k in properties.keys():
@@ -349,43 +314,15 @@ def main():
     argparser = argparse.ArgumentParser(description='Generate oozie and falcon configurations for ingestion')
     argparser.add_argument('profilerjson', help='JSON output from oracle_profiler.py')
     opts = argparser.parse_args()
-    hive_create = []
     if os.path.exists(ARTIFACTS):
         shutil.rmtree(ARTIFACTS)
-    for ds in json.loads(open(opts.profilerjson).read()):
-        for table in ds['tables']:
-            mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
-            if mapper > 20:
-                mapper = 20
-            columns = [c['field'] for c in table['columns']]
-            columns_create = []
-            columns_java = []
-            for c in table['columns']:
-                if JAVA_TYPE_MAP.get(c['type'], None):
-                    columns_java.append('%s=%s' % (c['field'], JAVA_TYPE_MAP[c['type']]))
-
-            source_name = ds['datasource']['name'].replace(' ','_')
-            username = ds['datasource']['login']
-            password = ds['datasource']['password']
-   
+    for table in csv.DictReader(open(opts.profilerjson), delimiter='\t'):
             params = {
-                'mapper': mapper, 
-                'source_name': source_name,
-                'host': ds['datasource']['ip'],
-                'port': ds['datasource']['port'],
-                'username': username, # ds['datasource']['login'],
-                'password': password,
-                'tns': ds['datasource']['tns'],
-                'schema': ds['datasource']['schema'],
-                'table': table['table'],
-                'split_by': table['split_by'],
-                'columns_java': ','.join(columns_java),
-                'columns_create': ','.join(columns_create),
-                'columns_create_newline': ',\n    '.join(columns_create),
-                'columns': ','.join(['`%s`' % c['field'] for c in table['columns']]),
-                'merge_column': table['merge_key'],
-                'check_column': table['check_column'],
-                'direct': ds['direct']
+                'source_name': table['Datasource'],
+                'schema': table['Schema'],
+                'table': table['Table'],
+                'merge_column': table['MergeKey'],
+                'check_column': table['CheckColumn'],
             }
    
             for stage, conf in STAGES.items():
@@ -395,9 +332,6 @@ def main():
                     opts['stagingdb'] = conf['stagingdb']
                     opts['targetdb'] = conf['targetdb'] % params
                     opts['prefix'] = conf['prefix']
-                    hive_create.append(
-                        hive_create_template % opts
-                    )
     
                 for process, proc_opts in PROCESSES.items():
                     opts = params.copy()
@@ -428,8 +362,6 @@ def main():
                                     feed_opts['path'], feed_opts['format'],
                                     feed_opts['exec_time'],
                                     feed_opts.get('retention', FOREVER))
-
-    open('hive-create.sql', 'w').write('\n'.join(hive_create))
 
 if __name__ == '__main__':
     main()
