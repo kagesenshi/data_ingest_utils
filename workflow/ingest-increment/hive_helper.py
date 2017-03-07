@@ -81,7 +81,7 @@ def backdate_check_column_value(value, backdate, data_type=None):
         newdt = dt - timedelta(days=backdate)
         return newdt.strftime('%Y-%m-%d %H:%M:%S.00')
     if re.match(r'^\d+$', value):
-        dt = datetime.fromtimestamp(value)
+        dt = datetime.fromtimestamp(int(value))
         newdt = dt - timedelta(days=backdate)
         return newdt.strftime('%s')
     return value
