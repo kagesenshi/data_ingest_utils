@@ -8,9 +8,48 @@ import base64
 from dateutil.parser import parse as parse_date
 import json
 from urlparse import urlparse
+import urllib
+import re
+from collections import OrderedDict
+import sys
+import os
 
 ENDPOINT='http://openproject.kagesenshi.org/openproject/api/v3'
 PROJECT='tm-trace'
+
+OPERATORS = [
+    (r'^(.*?)=(.*?)$', '=')
+]
+
+STATUS = OrderedDict((
+    ('NEW', 1),
+    ('TOBESCHEDULED', 2),
+    ('SCHEDULED', 3),
+    ('INPROGRESS', 4),
+    ('CLOSED', 5),
+    ('ONHOLD', 6),
+    ('REJECTED', 7)
+))
+
+TYPES = OrderedDict((
+    ('TASK',1),
+    ('MILESTONE',2),
+    ('PHASE',3),
+    ('FEATURE',4),
+    ('EPIC',5),
+    ('USERSTORY',6),
+    ('BUG',7),
+    ('ISSUE',8),
+))
+
+
+
+def weburl(path):
+    p = urlparse(ENDPOINT)
+    return '%s://%s%s' % (p.scheme, p.netloc, path.replace('api/v3/', ''))
+
+def fix_unicode(s):
+    return ''.join(i for i in s if ord(i)<128)
 
 class OpenProject(object):
 
@@ -21,7 +60,11 @@ class OpenProject(object):
         self.project = project
 
     def get(self, path, data=None):
-        res = requests.get(self.endpoint + path, data=data, auth=self.auth)
+        url = self.endpoint + path
+        if data:
+            qs = urllib.urlencode(data)
+            url += '?' + qs
+        res = requests.get(url, auth=self.auth)
         if not res.ok:
             raise Exception('%s %s' % (res.url, str(res)))
         return res.json()
@@ -37,11 +80,70 @@ class OpenProject(object):
             raise Exception("%s %s" % (res.url, str(res)))
         return res.json()
 
+    def patch(self, path, data=None):
+        params = {}
+        if data:
+            params['json'] = data
+        res = requests.patch(self.endpoint + path, auth=self.auth, **params)
+        if not res.ok:
+            if res.status_code == 422:
+                return res.json()
+            raise Exception("%s %s" % (res.url, str(res)))
+        return res.json()
+
+
     def info(self):
         res = self.get('/projects/%s' % self.project)
         return res
 
-    def work_package_info(self, identifier):
+    def work_packages(self, subject=None, status=None, regex=None, type_=None,
+            progress=None, category=None, parent=None):
+        params = {}
+        filters = []
+        if status:
+            filters.append({'status_id': {'operator': '=', 
+                                'values': [STATUS[status.upper()]]}})
+        if subject:
+            filters.append({'subject': {'operator': '~',
+                                'values': [subject]}})
+
+        if type_:
+            filters.append({'type': {'operator': '=', 
+                                'values': [TYPES[type_.upper()]]}})
+
+        if progress:
+            if (progress.startswith('<') or progress.startswith('>')):
+                op = progress[0] + '='
+                progress = progress[1:]
+            else:
+                op = '='
+            try:
+                v = int(progress)
+            except:
+                raise ValueError('Progress requires an integer')
+
+            filters.append({'percentageDone': {'operator': op, 'values': [v]}})
+
+        if filters:
+            params['filters'] = json.dumps(filters)
+
+        collection = []
+        current = self.get('/projects/%s/work_packages' % self.project,
+                data=params)
+        collection += current['_embedded']['elements']
+        while current['count'] != 0:
+            params['offset'] = current['offset'] + 1
+            current = self.get(
+                    '/projects/%s/work_packages' % self.project, data=params)
+            collection += current['_embedded']['elements']
+        if regex:
+            collection = filter(
+                lambda x: re.match(regex, x['subject']), collection)
+        if parent:
+            collection = filter(lambda x: x.get('parentId', None) == parent, collection)
+        return collection
+
+    def work_package(self, identifier):
         res = self.get('/work_packages/%s' % identifier)
         return res
 
@@ -50,17 +152,26 @@ class OpenProject(object):
         return res
 
     def construct_work_package_payload(self, subject, type_, parentId=None,
-            category=None, startDate=None, dueDate=None):
+            category=None, startDate=None, dueDate=None, percentageDone=None,
+            version=None, description=None, status=None, update=False):
         schema = self.work_package_schema()
+
+        statuses = self.get('/statuses')
+        (schema['_embedded']['schema']['status']['_embedded']
+                ['allowedValues']) = statuses['_embedded']['elements']
         payload = schema['_embedded']['payload']
+        if update:
+            payload = {'_links': {}}
 
         def validateSelect(value, sfield):
             if value is None:
                 return
             found = False
             for allowed in schema['_embedded']['schema'][sfield]['_embedded']['allowedValues']:
-                if value.upper() == allowed['name'].upper():
-                    payload['_links']['type'] = allowed['_links']['self']
+                if (value.upper() == allowed['name'].upper() or 
+                    value.upper().replace(' ','') == 
+                        allowed['name'].upper().replace(' ','')):
+                    payload['_links'][sfield] = allowed['_links']['self']
                     found = True
                     break
             if not found:
@@ -68,21 +179,47 @@ class OpenProject(object):
 
         validateSelect(type_, 'type')
         validateSelect(category, 'category')
-        payload['subject'] = subject
+        validateSelect(version, 'version')
+        validateSelect(status, 'status')
+
+        if type_.upper() == 'MILESTONE':
+            if startDate:
+                payload['date'] = startDate.strftime('%Y-%m-%d')
+            elif dueDate:
+                payload['date'] = endDate.strftime('%Y-%m-%d')
+        if subject:
+            payload['subject'] = subject
         if parentId:
             payload['parentId'] = parentId
-            parent = self.work_package_info(parentId)
+            parent = self.work_package(parentId)
             payload['_links']['parent'] = parent['_links']['self']
-        payload['startDate'] = (
+            if not startDate:
+                payload['startDate'] = parent['startDate']
+            if not dueDate:
+                payload['dueDate'] = parent['dueDate']
+        if startDate:
+            payload['startDate'] = (
                 startDate.strftime('%Y-%m-%d') if startDate else None)
-        payload['dueDate'] = (
+        if dueDate:
+            payload['dueDate'] = (
                 dueDate.strftime('%Y-%m-%d') if dueDate else None)
+        if percentageDone is not None:
+            payload['percentageDone'] = percentageDone
+        if description is not None:
+            payload['description']['raw'] = description
+        if not payload['_links']:
+            del payload['_links']
         return payload
 
     def create_work_package(self, payload):
         res = self.post('/projects/%s/work_packages' % self.project,
                 data=payload)
         return res
+
+    def update_work_package(self, identifier, payload):
+        res = self.patch('/work_packages/%s' % (identifier), data=payload)
+        return res
+
 
 @argh.arg('-j', '--json', help='Print JSON schema', action='store_true',
         default=False)
@@ -99,12 +236,18 @@ def project(**kwargs):
 
 @argh.arg('-j', '--json', help='Print JSON schema', action='store_true',
         default=False)
+@argh.arg('-p', '--payload', help='Print JSON Payload schema', action='store_true',
+        default=False)
 def schema(**kwargs):
     p = OpenProject(ENDPOINT, PROJECT)
     res = p.work_package_schema()
     if kwargs['json']:
         pprint(res)
         return
+    if kwargs['payload']:
+        pprint(res['_embedded']['payload'])
+        return 
+
     items = reversed(sorted(res['_embedded']['schema'].items(),
             key=lambda x: getattr(x[1], 'get', lambda x,y:
                 False)('required', False)))
@@ -117,40 +260,127 @@ def schema(**kwargs):
         if v.get('_embedded',None):
             if v['_embedded'].get('allowedValues', None):
                 for av in v['_embedded']['allowedValues']:
-                    print '\t', av['name']
+                    print '  ', av['name']
 
-
-@argh.arg('subject', help='Title of the ticket')
-@argh.arg('-t','--type', help='Ticket type', default='Task')
-@argh.arg('-p','--post', help='Submit payload instead of just printing', default=False,
-        action='store_true')
+@argh.arg('-S', '--status', default=None, 
+            help='Status. (%s)' % ','.join(STATUS.keys()))
+@argh.arg('-T', '--subject', default=None)
+@argh.arg('-r', '--regex', default=None)
+@argh.arg('-t', '--type', default=None, 
+        help='Type (%s)' % '.'.join(TYPES.keys()))
 @argh.arg('-c', '--category', help='Category', default=None)
-@argh.arg('-g', '--parent', help='Parent', default=None)
+@argh.arg('-P', '--parent', help='Parent', default=None, type=int)
+@argh.arg('-b', '--progress', help='Progress', default=None)
+@argh.arg('-v', '--version', help='version', default=None)
+def query(**kwargs):
+    p = OpenProject(ENDPOINT, PROJECT)
+    if kwargs['status']:
+        if kwargs['status'].upper() not in STATUS.keys():
+            print "Invalid status"
+            sys.exit(1)
+    res = p.work_packages(status=kwargs['status'], subject=kwargs['subject'],
+            regex=kwargs['regex'], type_=kwargs['type'],
+            progress=kwargs['progress'], category=kwargs['category'],
+            parent=kwargs['parent'])
+    for i in sorted(res, key=lambda x: x['percentageDone']):
+        i['href'] = weburl(i['_links']['self']['href'])
+        print fix_unicode(u"%(id)4s %(percentageDone)3s%% %(subject)-30s" % i)
+
+@argh.arg('identifier', help='Identifier')
+def get(identifier):
+    p = OpenProject(ENDPOINT, PROJECT)
+    res = p.work_package(int(identifier))
+    pprint(res)
+
+@argh.arg('-T', '--subject', help='Title of the ticket')
+@argh.arg('-t','--type', help='Ticket type', default='Task')
+@argh.arg('-p','--print', help='Print payload instead of just posting', default=False,
+        action='store_true')
+@argh.arg('-D', '--description', help='Description', default=None)
+@argh.arg('-c', '--category', help='Category', default=None)
+@argh.arg('-P', '--parent', help='Parent', default=None)
 @argh.arg('-s', '--start-date', help='Start date', default=None)
 @argh.arg('-d', '--due-date', help='Due date', default=None)
-def create(subject, **kwargs):
+@argh.arg('-b', '--progress', help='Progress', default=None, type=int)
+@argh.arg('-v', '--version', help='version', default=None)
+def create(**kwargs):
     p = OpenProject(ENDPOINT, PROJECT)
     get_date = lambda x: parse_date(x).date() if x else None
-    pl = p.construct_work_package_payload(subject, kwargs['type'],
+    pl = p.construct_work_package_payload(kwargs['subject'], kwargs['type'],
             parentId=kwargs['parent'], category=kwargs['category'],
             startDate=get_date(kwargs['start_date']),
-            dueDate=get_date(kwargs['due_date']))
-    if not kwargs['post']:
+            dueDate=get_date(kwargs['due_date']),
+            percentageDone=kwargs['progress'],
+            description=kwargs['description'],
+            version=kwargs['version'])
+
+    if kwargs['print']:
         pprint(pl)
         return
 
     res = p.create_work_package(pl)
+
     if res['_type'] == 'Error':
         print res['message']
         if res.get('_embedded', {}).get('errors', {}):
             for e in res['_embedded']['errors']:
-                print '\t', e['message']
-        return
+                print '  ', e['message']
+        sys.exit(1)
 
     print "Created %s" % res['_links']['self']['href']
 
+
+@argh.arg('-T','--subject', help='Title of the ticket')
+@argh.arg('-t','--type', help='Ticket type', default=None)
+@argh.arg('-p','--print', help='Print payload instead of posting', default=False,
+        action='store_true')
+@argh.arg('-D', '--description', help='Description', default=None)
+@argh.arg('-c', '--category', help='Category', default=None)
+@argh.arg('-P', '--parent', help='Parent', default=None)
+@argh.arg('-s', '--start-date', help='Start date', default=None)
+@argh.arg('-S', '--status', help='Status', default=None)
+@argh.arg('-d', '--due-date', help='Due date', default=None)
+@argh.arg('-b', '--progress', help='Progress', default=None, type=int)
+@argh.arg('-v', '--version', help='version', default=None)
+@argh.arg('-i', '--id', help='ID', default=None, required=True)
+def update(**kwargs):
+    p = OpenProject(ENDPOINT, PROJECT)
+    get_date = lambda x: parse_date(x).date() if x else None
+
+    current = p.work_package(kwargs['id'])
+    if kwargs['type'] is None:
+        kwargs['type'] = current['_links']['type']['title']
+
+    pl = p.construct_work_package_payload(kwargs['subject'], kwargs['type'],
+            parentId=kwargs['parent'], category=kwargs['category'],
+            startDate=get_date(kwargs['start_date']),
+            dueDate=get_date(kwargs['due_date']),
+            percentageDone=kwargs['progress'],
+            version=kwargs['version'],
+            description=kwargs['description'],
+            status=kwargs['status'],
+            update=True)
+
+    pl['lockVersion'] = current['lockVersion']
+    if kwargs['print']:
+        pprint(pl)
+        return
+
+    res = p.update_work_package(kwargs['id'], pl)
+
+    if res['_type'] == 'Error':
+        print res['message']
+        if res.get('_embedded', {}).get('errors', {}):
+            for e in res['_embedded']['errors']:
+                print '  ', e['message']
+        sys.exit(1)
+
+    print "Updated %s" % res['_links']['self']['href']
+
+
+
 parser = argh.ArghParser()
-parser.add_commands([project, schema, create])
+parser.add_commands([project, get, query, schema, create, update])
 
 def main():
     parser.dispatch()
