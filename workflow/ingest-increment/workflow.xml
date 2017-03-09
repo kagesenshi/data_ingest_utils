@@ -176,9 +176,10 @@
             </property>
             <property>
                <name>mapreduce.job.queuename</name>
-               <value>distcp</value>
+               <value>oozie</value>
             </property>
          </configuration>
+         <arg>-Dmapreduce.job.queuename=distcp</arg>
          <arg>${nameNode}/${outputdir}/INCREMENT/CURRENT/</arg>
          <arg>${nameNode}/${outputdir}/INCREMENT/ingest_date=${wf:actionData('getValues')['DATE']}/</arg>
       </distcp>
