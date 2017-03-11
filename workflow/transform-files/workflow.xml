@@ -249,9 +249,19 @@ LIKE ${targetdb}.${schema}_${table}_SCHEMA
 STORED AS ORC;
 
 INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
-SELECT
-   *
+SELECT *
 FROM ${targetdb}.${schema}_${table}_CURRENT;
+
+CREATE DATABASE IF NOT EXISTS ${targetdb}_HISTORY;
+CREATE TABLE IF NOT EXISTS ${targetdb}_HISTORY.${schema}_${table}
+LIKE ${targetdb}.${schema}_${table}_SCHEMA
+PARTITIONED BY (ingest_date STRING)
+STORED AS ORC;
+
+INSERT INTO TABLE ${targetdb}_HISTORY.${schema}_${table}
+SELECT *, '${wf:actionData('getValues')['DATE']}' AS ingest_date
+FROM ${targetdb}.${schema}_${table};
+
            </query>
         </hive>
         <ok to="markORCDataReady"/>
