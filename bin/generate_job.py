@@ -46,7 +46,7 @@ falcon_feed_template = '''
   <availabilityFlag>_SUCCESS</availabilityFlag>
   <frequency>days(1)</frequency>
   <timezone>GMT+08:00</timezone>
-  <late-arrival cut-off='hours(6)'/>
+  <late-arrival cut-off='hours(18)'/>
   <clusters>
     <cluster name='TMDATALAKEP' type='source'>
       <validity start='%(start_utc)s' end='2099-12-31T00:00Z'/>
@@ -190,13 +190,13 @@ EXEC_TIME = {
 
 FEEDS = {
    'full-retention': {
-       'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/instance_date=${YEAR}-${MONTH}-${DAY}',
+       'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/ingest_date=${YEAR}-${MONTH}-${DAY}',
        'format': 'parquet',
        'exec_time': '00:00',
        'retention': 365
    },
    'increment-retention': {
-        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/instance_date=${YEAR}-${MONTH}-${DAY}',
+        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/ingest_date=${YEAR}-${MONTH}-${DAY}',
         'format': 'parquet',
         'exec_time': '00:00',
         'retention': 365

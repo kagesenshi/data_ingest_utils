@@ -39,7 +39,7 @@ falcon_feed_template = '''
   <availabilityFlag>_SUCCESS</availabilityFlag>
   <frequency>days(1)</frequency>
   <timezone>GMT+08:00</timezone>
-  <late-arrival cut-off='hours(6)'/>
+  <late-arrival cut-off='hours(18)'/>
   <clusters>
     <cluster name='TMDATALAKEP' type='source'>
       <validity start='%(start_utc)s' end='2099-12-31T00:00Z'/>

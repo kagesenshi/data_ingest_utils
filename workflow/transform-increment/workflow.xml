@@ -241,15 +241,23 @@ SELECT *
 FROM ${targetdb}.${schema}_${table}_CURRENT;
 
 CREATE DATABASE IF NOT EXISTS ${targetdb}_HISTORY;
-CREATE TABLE IF NOT EXISTS ${targetdb}_HISTORY.${schema}_${table}
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+
+CREATE TABLE IF NOT EXISTS ${targetdb}_HISTORY.${schema}_${table}_SCHEMA
 PARTITIONED BY (ingest_date STRING)
+ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='${nameNode}/${outputdir}/CURRENT/.metadata/schema.avsc'
+);
+
+CREATE TABLE IF NOT EXISTS ${targetdb}_HISTORY.${schema}_${table}
+LIKE ${targetdb}_HISTORY.${schema}_${table}_SCHEMA
 STORED AS ORC;
 
-INSERT INTO TABLE ${targetdb}_HISTORY.${schema}_${table}
-SELECT *, '${wf:actionData('getValues')['DATE']}' AS ingest_date
-FROM ${targetdb}.${schema}_${table};
-
+INSERT OVERWRITE TABLE ${targetdb}_HISTORY.${schema}_${table}
+PARTITION (ingest_date='${wf:actionData('getValues')['DATE']}')
+SELECT * FROM ${targetdb}.${schema}_${table};
            </query>
         </hive>
         <ok to="markORCDataReady"/>
