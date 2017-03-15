@@ -43,8 +43,10 @@
          <job-xml>conf/oozie.xml</job-xml>
          <exec>python</exec>
          <argument>hive_helper.py</argument>
-         <argument>-p</argument>
-         <argument>${outputdir}/CURRENT</argument>
+         <argument>-d</argument>
+         <argument>INGEST_${targetdb}</argument>
+         <argument>-t</argument>
+         <argument>${schema}_${table}_CURRENT</argument>
          <argument>-c</argument>
          <argument>${check_column}</argument>
          <argument>-b</argument>

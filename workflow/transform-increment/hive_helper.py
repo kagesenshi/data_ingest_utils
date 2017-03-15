@@ -11,19 +11,6 @@ import re
 
 CREATE_SCRIPT='''
 SET tez.queue.name=%(queue)s;
-
-CREATE TEMPORARY TABLE default.%(tablename)s_SCHEMA
-ROW FORMAT SERDE
-   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
-STORED AS AVRO
-TBLPROPERTIES (
-   'avro.schema.url'='%(nameNode)s/%(path)s/.metadata/schema.avsc'
-);
-
-CREATE TEMPORARY EXTERNAL TABLE default.%(tablename)s LIKE
-    default.%(tablename)s_SCHEMA
-STORED AS PARQUET
-LOCATION "%(path)s";
 '''
 
 DATE_PATTERN=re.compile(r'^(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)\.(\d+)$')
@@ -42,7 +29,7 @@ def guess_type(sql_args):
         return None
 
     query = CREATE_SCRIPT + '''
-        select %(check_column)s from default.%(tablename)s where %(check_column)s is
+        select %(check_column)s from %(db)s.%(table)s where %(check_column)s is
         not null limit 1;
     '''
 
@@ -59,11 +46,11 @@ def get_check_column_value(sql_args, data_type=None):
                     %(data_type)s(
                             %%(check_column)s
                     )
-            ) from default.%%(tablename)s;
+            ) from %%(db)s.%%(table)s;
         ''' % { 'data_type': data_type }
     else:
         query += '''
-            select %(op)s(%(check_column)s) from default.%(tablename)s;
+            select %(op)s(%(check_column)s) from %(db)s.%(table)s;
         '''
     result = execute_query(query, **sql_args)
     return result
@@ -90,8 +77,6 @@ def execute_query(query, **kwargs):
     queue = kwargs.get('queue', 'default')
     scriptname = tempfile.mktemp()
     script = '%s.sql' % scriptname
-    tablename = os.path.basename(scriptname)
-    kwargs['tablename'] = 'increment_%s' % (tablename)
     with open(script, 'w') as s:
         s.write(query % kwargs)
     env = os.environ.copy()
@@ -107,7 +92,8 @@ def execute_query(query, **kwargs):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p','--path', dest='path', required=True)
+    parser.add_argument('-d','--db', dest='db', required=True)
+    parser.add_argument('-t','--table', dest='table', required=True)
     parser.add_argument('-c','--check_column', dest='check_column', required=True)
     parser.add_argument('-o','--operation', dest='operation', default='max')
     parser.add_argument('-n','--namenode', dest='namenode', required=True)
@@ -128,7 +114,8 @@ def main():
         sys.exit(1)
 
     params = {
-        'path': args.path,
+        'db': args.db,
+        'table': args.table,
         'check_column': args.check_column,
         'op': args.operation,
         'backdate': args.backdate,

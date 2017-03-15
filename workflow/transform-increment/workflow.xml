@@ -40,8 +40,10 @@
          <job-xml>conf/oozie.xml</job-xml>
          <exec>python</exec>
          <argument>hive_helper.py</argument>
-         <argument>-p</argument>
-         <argument>${outputdir}/CURRENT</argument>
+         <argument>-d</argument>
+         <argument>INGEST_${targetdb}</argument>
+         <argument>-t</argument>
+         <argument>${schema}_${table}_CURRENT</argument>
          <argument>-c</argument>
          <argument>${check_column}</argument>
          <argument>-b</argument>
@@ -96,37 +98,37 @@ TBLPROPERTIES (
    'avro.schema.url'='${nameNode}/${outputdir}/CURRENT/.metadata/schema.avsc'
 );
 
-CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${source_name}_${schema}_${table}_CURRENT 
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_CURRENT 
 LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
 
-CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${source_name}_${schema}_${table}_INCREMENT 
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_INCREMENT 
 LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${outputdir}/INCREMENT/CURRENT';
 
-DROP VIEW IF EXISTS INGEST_${targetdb}.${source_name}_${schema}_${table}_RECONCILE_VIEW;
-CREATE VIEW INGEST_${targetdb}.${source_name}_${schema}_${table}_RECONCILE_VIEW AS
+DROP VIEW IF EXISTS INGEST_${targetdb}.${schema}_${table}_RECONCILE_VIEW;
+CREATE VIEW INGEST_${targetdb}.${schema}_${table}_RECONCILE_VIEW AS
 SELECT t2.* FROM
    (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY 
       ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} DESC) hive_rn
       FROM
-      (SELECT * FROM INGEST_${targetdb}.${source_name}_${schema}_${table}_CURRENT
+      (SELECT * FROM INGEST_${targetdb}.${schema}_${table}_CURRENT
          WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &lt;= ${wf:actionData('getValues')['HIVE_CHECK_COLUMN_VALUE']}
          OR ${check_column} IS NULL
          UNION ALL
-       SELECT * FROM INGEST_${targetdb}.${source_name}_${schema}_${table}_INCREMENT
+       SELECT * FROM INGEST_${targetdb}.${schema}_${table}_INCREMENT
          WHERE ${wf:actionData('getValues')['HIVE_CHECK_COLUMN']} &gt; ${wf:actionData('getValues')['HIVE_CHECK_COLUMN_VALUE']}) t1) t2
 WHERE t2.hive_rn=1;
 
-CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${source_name}_${schema}_${table}_RECONCILED 
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_RECONCILED 
 LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
 
-INSERT OVERWRITE TABLE INGEST_${targetdb}.${source_name}_${schema}_${table}_RECONCILED
+INSERT OVERWRITE TABLE INGEST_${targetdb}.${schema}_${table}_RECONCILED
 SELECT `(hive_rn)?+.+`
-FROM INGEST_${targetdb}.${source_name}_${schema}_${table}_RECONCILE_VIEW;
+FROM INGEST_${targetdb}.${schema}_${table}_RECONCILE_VIEW;
 
-DROP VIEW IF EXISTS INGEST_${targetdb}.${source_name}_${schema}_${table}_RECONCILE_VIEW;
+DROP VIEW IF EXISTS INGEST_${targetdb}.${schema}_${table}_RECONCILE_VIEW;
             </query>
         </hive>
         <ok to="copyAvroMetadata"/>
