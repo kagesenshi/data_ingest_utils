@@ -71,6 +71,30 @@ falcon_feed_template = '''
 </feed>
 '''
 
+falcon_hivefeed_template = '''
+<feed xmlns='uri:falcon:feed:0.1' name='%(feed_name)s'>
+  <tags>entity_type=feed,format=%(feed_format)s,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,feed_type=%(feed_type)s</tags>
+  <availabilityFlag>_SUCCESS</availabilityFlag>
+  <frequency>days(1)</frequency>
+  <timezone>GMT+08:00</timezone>
+  <late-arrival cut-off='hours(18)'/>
+  <clusters>
+    <cluster name='TMDATALAKEP' type='source'>
+      <validity start='%(start_utc)s' end='2099-12-31T00:00Z'/>
+      %(retention)s
+    </cluster>
+  </clusters>
+  <table uri="%(feed_path)s"/>
+  <ACL owner='trace' group='users' permission='0x755'/>
+  <schema location='/none' provider='/none'/>
+  <properties>
+    <property name='queueName' value='oozie'></property>
+    <property name='jobPriority' value='NORMAL'></property>
+    <property name="oozie.processing.timezone" value="UTC" />
+  </properties>
+</feed>
+'''
+
 
 
 oozie_properties = OrderedDict([
@@ -213,6 +237,15 @@ FEEDS = {
    },
 }
 
+HIVE_FEEDS = {
+    'hive-retention' : {
+        'path': 'catalog:%(targetdb)s_HISTORY:%(schema)s_%(table)s#ingest_date=${YEAR}-${MONTH}-${DAY}',
+        'format': 'orc',
+        'exec_time': '00:00',
+        'retention': 365
+    }
+}
+
 ARTIFACTS='artifacts/'
 
 FOREVER=36135
@@ -345,6 +378,38 @@ def falcon_feed(stage, properties, feed, feed_path, feed_format,
     job = falcon_feed_template % params
     return params, job
 
+def write_falcon_hivefeed(storedir, stage, properties, feed, feed_path, 
+        feed_format, exec_time='00:00', retention=FOREVER):
+    filename = '%(source_name)s-%(schema)s-%(table)s.xml' % properties
+    if not os.path.exists(storedir):
+        os.makedirs(storedir)
+    with open('%s/%s' % (storedir, filename), 'w') as f:
+        params, job = falcon_hivefeed(stage, properties, feed, 
+                    feed_path, feed_format, exec_time, retention)
+        f.write(job)
+
+def falcon_hivefeed(stage, properties, feed, feed_path, feed_format, 
+            exec_time='00:00', retention=FOREVER):
+    if retention is not None:
+        rt = "<retention limit='days(%s)' action='delete'/>" % retention
+    else:
+        rt = ''
+    params = {
+       'schema': properties['schema'],
+       'table': properties['table'],
+       'source_name': properties['source_name'],
+       'start_utc': generate_utc_time(exec_time),
+       'feed_name': default_feed_name(stage, properties, feed), 
+       'feed_path': feed_path % properties,
+       'feed_type': feed,
+       'feed_format': feed_format,
+       'stage': stage,
+       'retention': rt
+    }
+    job = falcon_hivefeed_template % params
+    return params, job
+
+
 def main():
     argparser = argparse.ArgumentParser(description='Generate oozie and falcon configurations for ingestion')
     argparser.add_argument('profilerjson', help='JSON output from oracle_profiler.py')
@@ -428,6 +493,17 @@ def main():
                                     feed_opts['path'], feed_opts['format'],
                                     feed_opts['exec_time'],
                                     feed_opts.get('retention', FOREVER))
+
+                for feed, feed_opts in HIVE_FEEDS.items():
+                    opts = params.copy()
+                    opts['prefix'] = conf['prefix']
+                    opts['targetdb'] = conf['targetdb'] % params
+                    storedir = '%s/%s-falconfeed-%s' % (ARTIFACTS, stage, feed)
+                    write_falcon_hivefeed(storedir, stage, opts, feed,
+                                    feed_opts['path'], feed_opts['format'],
+                                    feed_opts['exec_time'],
+                                    feed_opts.get('retention', FOREVER))
+
 
     open('hive-create.sql', 'w').write('\n'.join(hive_create))
 
