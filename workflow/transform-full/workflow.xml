@@ -61,7 +61,9 @@ SET tez.queue.name=batch;
 
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 
-CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE DATABASE IF NOT EXISTS INGEST_${targetdb};
+
+CREATE TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_SCHEMA
    ROW FORMAT SERDE 
    'org.apache.hadoop.hive.serde2.avro.AvroSerDe' 
 STORED AS AVRO 
@@ -69,21 +71,21 @@ TBLPROPERTIES (
    'avro.schema.url'='hdfs://${outputdir}/CURRENT/.metadata/schema.avsc'
 ); 
 
-CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT 
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_CURRENT 
+LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
 
 CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table}
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS ORC;
 
 INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
 SELECT *
-FROM ${targetdb}.${schema}_${table}_CURRENT;
+FROM INGEST_${targetdb}.${schema}_${table}_CURRENT;
 
 CREATE DATABASE IF NOT EXISTS ${targetdb}_HISTORY;
 
-CREATE TABLE IF NOT EXISTS ${targetdb}_HISTORY.${schema}_${table}_SCHEMA
+CREATE TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_HISTORYSCHEMA
 PARTITIONED BY (ingest_date STRING)
 ROW FORMAT SERDE
    'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
@@ -93,7 +95,7 @@ TBLPROPERTIES (
 );
 
 CREATE TABLE IF NOT EXISTS ${targetdb}_HISTORY.${schema}_${table}
-LIKE ${targetdb}_HISTORY.${schema}_${table}_SCHEMA
+LIKE INGEST_${targetdb}.${schema}_${table}_HISTORYSCHEMA
 STORED AS ORC;
 
 INSERT OVERWRITE TABLE ${targetdb}_HISTORY.${schema}_${table}
