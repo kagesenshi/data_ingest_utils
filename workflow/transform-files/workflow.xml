@@ -77,7 +77,9 @@
 SET tez.queue.name=batch;
 SET hive.support.quoted.identifiers=none;
 
-CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE DATABASE IF NOT EXISTS INGEST_${targetdb};
+
+CREATE TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_SCHEMA
    ROW FORMAT SERDE
    'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
 STORED AS AVRO
@@ -85,30 +87,24 @@ TBLPROPERTIES (
    'avro.schema.url'='${nameNode}/${sourcedir}/.metadata/schema.avsc'
 );
 
-DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_SOURCE;
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_SOURCE
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_SOURCE
+LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${sourcedir}';
 
-DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
-CREATE VIEW ${source_name}_${schema}_${table}_RECONCILE_VIEW AS
+CREATE VIEW IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_RECONCILE_VIEW AS
 SELECT t2.* FROM
    (SELECT *,ROW_NUMBER() OVER (PARTITION BY ${merge_column} ORDER BY 
       ${check_column} DESC) hive_rn
-      FROM ${source_name}_${schema}_${table}_SOURCE t1) t2
+      FROM INGEST_${targetdb}.${schema}_${table}_SOURCE t1) t2
 WHERE t2.hive_rn=1;
 
-DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED 
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_RECONCILED 
+LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
 
-INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
-SELECT 
-   `(hive_rn)?+.+`
-FROM ${source_name}_${schema}_${table}_RECONCILE_VIEW;
-
-DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
+INSERT OVERWRITE TABLE INGEST_${targetdb}.${schema}_${table}_RECONCILED
+SELECT `(hive_rn)?+.+`
+FROM INGEST_${targetdb}.${schema}_${table}_RECONCILE_VIEW;
             </query>
         </hive>
         <ok to="copyAvroMetadata"/>
@@ -125,7 +121,7 @@ DROP VIEW IF EXISTS ${source_name}_${schema}_${table}_RECONCILE_VIEW;
 SET tez.queue.name=batch;
 SET hive.support.quoted.identifiers=none;
 
-CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_SCHEMA
    ROW FORMAT SERDE
    'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
 STORED AS AVRO
@@ -133,18 +129,16 @@ TBLPROPERTIES (
    'avro.schema.url'='${nameNode}/${sourcedir}/.metadata/schema.avsc'
 );
 
-DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_SOURCE;
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_SOURCE
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_SOURCE
+LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${sourcedir}';
 
-DROP TABLE IF EXISTS ${source_name}_${schema}_${table}_RECONCILED;
-CREATE TEMPORARY EXTERNAL TABLE ${source_name}_${schema}_${table}_RECONCILED 
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_RECONCILED 
+LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${outputdir}/RECONCILED';
 
-INSERT OVERWRITE TABLE ${source_name}_${schema}_${table}_RECONCILED
-SELECT * from ${source_name}_${schema}_${table}_SOURCE;
+INSERT OVERWRITE TABLE INGEST_${targetdb}.${schema}_${table}_RECONCILED
+SELECT * from INGEST_${targetdb}.${schema}_${table}_SOURCE;
             </query>
         </hive>
         <ok to="copyAvroMetadata"/>
@@ -232,37 +226,41 @@ SET tez.queue.name=batch;
 
 CREATE DATABASE IF NOT EXISTS ${targetdb};
 
-CREATE TEMPORARY TABLE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE DATABASE IF NOT EXISTS INGEST_${targetdb};
+
+CREATE DATABASE IF NOT EXISTS ${targetdb}_HISTORY;
+
+CREATE TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_SCHEMA
    ROW FORMAT SERDE
    'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
 STORED AS AVRO
 TBLPROPERTIES (
-   'avro.schema.url'='${nameNode}/${outputdir}/CURRENT/.metadata/schema.avsc'
+   'avro.schema.url'='${nameNode}/${sourcedir}/.metadata/schema.avsc'
 );
 
-CREATE TEMPORARY EXTERNAL TABLE ${targetdb}.${schema}_${table}_CURRENT 
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_CURRENT 
+LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS PARQUET LOCATION '${outputdir}/CURRENT';
 
 CREATE TABLE IF NOT EXISTS ${targetdb}.${schema}_${table}
-LIKE ${targetdb}.${schema}_${table}_SCHEMA
+LIKE INGEST_${targetdb}.${schema}_${table}_SCHEMA
 STORED AS ORC;
 
 INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
 SELECT *
-FROM ${targetdb}.${schema}_${table}_CURRENT;
+FROM INGEST_${targetdb}.${schema}_${table}_CURRENT;
 
-CREATE TABLE IF NOT EXISTS ${targetdb}_HISTORY.${schema}_${table}_SCHEMA
+CREATE TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_HISTORYSCHEMA
 PARTITIONED BY (ingest_date STRING)
 ROW FORMAT SERDE
    'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
 STORED AS AVRO
 TBLPROPERTIES (
-   'avro.schema.url'='${nameNode}/${outputdir}/CURRENT/.metadata/schema.avsc'
+   'avro.schema.url'='${nameNode}/${sourcedir}/.metadata/schema.avsc'
 );
 
 CREATE TABLE IF NOT EXISTS ${targetdb}_HISTORY.${schema}_${table}
-LIKE ${targetdb}_HISTORY.${schema}_${table}_SCHEMA
+LIKE INGEST_${targetdb}.${schema}_${table}_HISTORYSCHEMA
 STORED AS ORC; 
 
 INSERT OVERWRITE TABLE ${targetdb}_HISTORY.${schema}_${table}
