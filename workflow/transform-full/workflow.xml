@@ -103,18 +103,9 @@ PARTITION (ingest_date='${wf:actionData('getValues')['DATE']}')
 SELECT * FROM ${targetdb}.${schema}_${table};
             </query>
         </hive>
-        <ok to="markORCDataReady"/>
-        <error to="kill"/>
-    </action>
-
-    <action name="markORCDataReady">
-        <fs>
-            <name-node>${nameNode}</name-node>
-            <touchz path="/apps/hive/warehouse/${targetdb}/${schema}_${table}/_SUCCESS"></touchz>
-        </fs>
         <ok to="cleanMarker"/>
         <error to="kill"/>
-     </action>
+    </action>
 
    <action name="cleanMarker">
       <fs>
