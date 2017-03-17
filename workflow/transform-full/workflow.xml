@@ -63,6 +63,8 @@ CREATE DATABASE IF NOT EXISTS ${targetdb};
 
 CREATE DATABASE IF NOT EXISTS INGEST_${targetdb};
 
+CREATE DATABASE IF NOT EXISTS ${targetdb}_HISTORY;
+
 CREATE TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_SCHEMA
    ROW FORMAT SERDE 
    'org.apache.hadoop.hive.serde2.avro.AvroSerDe' 
@@ -82,8 +84,6 @@ STORED AS ORC;
 INSERT OVERWRITE TABLE ${targetdb}.${schema}_${table}
 SELECT *
 FROM INGEST_${targetdb}.${schema}_${table}_CURRENT;
-
-CREATE DATABASE IF NOT EXISTS ${targetdb}_HISTORY;
 
 CREATE TABLE IF NOT EXISTS INGEST_${targetdb}.${schema}_${table}_HISTORYSCHEMA
 PARTITIONED BY (ingest_date STRING)
