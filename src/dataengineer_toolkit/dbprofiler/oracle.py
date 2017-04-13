@@ -19,6 +19,7 @@ from ConfigParser import ConfigParser
 import urlparse
 from sshtunnel import SSHTunnelForwarder
 
+
 def now():
     return datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
 
@@ -48,16 +49,8 @@ class OracleProfiler(object):
             'connection_string': self.connstr,
             'datasource': self.ds,
             'tables': [],
-            'profiling_metadata': {
-                'user': getpass.getuser(),
-                'working_directory': os.getcwd(),
-                'environment': dict(os.environ)
-            }
+            'profiling_metadata': {}
         }
-        # we dont need the terminal color variable
-        if self.result['profiling_metadata']['environment'].get(
-                'LS_COLORS', None):
-            del self.result['profiling_metadata']['environment']['LS_COLORS']
 
     def update(self):
         if self.tunnel:

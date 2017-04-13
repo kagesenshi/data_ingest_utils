@@ -23,6 +23,7 @@ setup(name='dataengineer-toolkit',
             'Paramiko',
             'sshtunnel',
             'pyhs2',
+            'Jinja2',
             'cx_Oracle'
         ],
         zip_safe=False
