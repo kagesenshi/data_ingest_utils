@@ -10,11 +10,21 @@ from datetime import datetime, timedelta
 from dateutil.parser import parse as parse_date
 
 hive_create_template = '''
-drop table if exists %(targetdb)s.%(schema)s_%(table)s;
-create table %(targetdb)s.%(schema)s_%(table)s (
-   %(columns_create_newline)s
-) STORED AS ORC;
+CREATE DATABASE IF NOT EXISTS INGEST_%(targetdb)s;
+
+CREATE TABLE IF NOT EXISTS INGEST_%(targetdb)s.%(schema)s_%(table)s_SCHEMA
+   ROW FORMAT SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='hdfs://%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT/.metadata/schema.avsc'
+);
+
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_%(targetdb)s.%(schema)s_%(table)s_CURRENT
+LIKE INGEST_%(targetdb)s.%(schema)s_%(table)s_SCHEMA
+STORED AS PARQUET LOCATION '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
 '''
+
 # LOCATION '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
 
 falcon_process_template = (
@@ -112,7 +122,7 @@ oozie_properties = OrderedDict([
     ('direct', None),
     ('targetdb', None),
     ('stagingdb', None),
-    ('backdate', '50'),
+    ('backdate', '7'),
     ('schema', None),
     ('table', None),
     ('mapper', None),
@@ -177,8 +187,8 @@ EXEC_TIME = {
     'CPC': {
         'ingest-full': '00:01',
         'ingest-increment': '00:01',
-        'transform-full': '02:00',
-        'transform-increment': '02:00'
+        'transform-full': '00:30',
+        'transform-increment': '00:30'
     },
     'SIEBEL_NOVA': {
         'ingest-full': '03:00',
@@ -415,13 +425,20 @@ def main():
     argparser.add_argument('profilerjson', help='JSON output from oracle_profiler.py')
     opts = argparser.parse_args()
     hive_create = []
+    import csv
+    p1_tables = ['%s-%s-%s' % (i['Data Source'],i['Schema'],i['Tables']) for i in 
+        csv.DictReader(open('dataset/phase1_tables.tsv'),delimiter='\t')]
+
     if os.path.exists(ARTIFACTS):
         shutil.rmtree(ARTIFACTS)
     for ds in json.loads(open(opts.profilerjson).read()):
         for table in ds['tables']:
+
             mapper = int((table['estimated_size'] or 0) / 1024 / 1024 / 1024) or 2
-            if mapper > 20:
-                mapper = 20
+            if mapper < 2:
+                mapper = 2
+            if mapper > 25:
+                mapper = 25
             columns = [c['field'] for c in table['columns']]
             columns_create = []
             columns_java = []
@@ -432,6 +449,11 @@ def main():
             source_name = ds['datasource']['name'].replace(' ','_')
             username = ds['datasource']['login']
             password = ds['datasource']['password']
+
+            if (
+                '%s-%s-%s' % (source_name, table['schema'], 
+                    table['table']) not in p1_tables):
+                continue
    
             params = {
                 'mapper': mapper, 

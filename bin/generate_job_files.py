@@ -113,6 +113,12 @@ PROCESSES = {
     'transform-files': {
         'workflow': 'transform-files',
     },
+    'transform-files-full': {
+        'workflow': 'transform-files-full'
+    },
+    'ingest-files-raw-current': {
+        'workflow': 'ingest-files-raw-current'
+    },
 }
 
 EXEC_TIME = {
@@ -312,17 +318,18 @@ def falcon_feed(stage, properties, feed, feed_path, feed_format,
 
 def main():
     argparser = argparse.ArgumentParser(description='Generate oozie and falcon configurations for ingestion')
-    argparser.add_argument('profilerjson', help='JSON output from oracle_profiler.py')
+    argparser.add_argument('tabletsv', help='TSV of the table list')
     opts = argparser.parse_args()
     if os.path.exists(ARTIFACTS):
         shutil.rmtree(ARTIFACTS)
-    for table in csv.DictReader(open(opts.profilerjson), delimiter='\t'):
+    for table in csv.DictReader(open(opts.tabletsv), delimiter='\t'):
             params = {
                 'source_name': table['Datasource'],
                 'schema': table['Schema'],
                 'table': table['Table'],
                 'merge_column': table['MergeKey'],
                 'check_column': table['CheckColumn'],
+                'reconcile': 'merge' if table['MergeKey'] else 'append'
             }
    
             for stage, conf in STAGES.items():
