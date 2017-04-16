@@ -8,116 +8,32 @@ import os
 import shutil
 from datetime import datetime, timedelta
 from dateutil.parser import parse as parse_date
+from jinja2 import Environment, PackageLoader, select_autoescape
 
-hive_create_template = '''
-CREATE DATABASE IF NOT EXISTS INGEST_%(targetdb)s;
+templates = Environment(
+    loader=PackageLoader('dataengineer_toolkit.job_generator', 'templates'),
+    autoescape=select_autoescape('html', 'xml')
+)
 
-CREATE TABLE IF NOT EXISTS INGEST_%(targetdb)s.%(schema)s_%(table)s_SCHEMA
-   ROW FORMAT SERDE
-   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
-STORED AS AVRO
-TBLPROPERTIES (
-   'avro.schema.url'='hdfs://%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT/.metadata/schema.avsc'
-);
+hive_create_template = templates.get_template('hive.sql.j2')
 
-CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_%(targetdb)s.%(schema)s_%(table)s_CURRENT
-LIKE INGEST_%(targetdb)s.%(schema)s_%(table)s_SCHEMA
-STORED AS PARQUET LOCATION '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
-'''
+falcon_process_template = templates.get_template('falconprocess.xml.j2')
 
-# LOCATION '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT';
+falcon_feed_template = templates.get_template('falconfeed.xml.j2')
 
-falcon_process_template = (
-'''<process xmlns='uri:falcon:process:0.1' name="%(process_name)s">
-    <tags>entity_type=process,activity_type=ingestion,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,workflow=%(workflow)s</tags>
-    <clusters>
-        <cluster name="TMDATALAKEP">
-            <validity start="%(start_utc)s" end="2099-12-31T00:00Z"/>
-        </cluster>
-    </clusters>
-    <parallel>1</parallel>
-    <order>FIFO</order>
-    <frequency>hours(%(frequency_hours)s)</frequency>
-    <timezone>GMT+08:00</timezone>
-    %(inputs)s
-    %(outputs)s
-    <properties>
-        %(properties)s
-        <property name="oozie.processing.timezone" value="UTC" />
-    </properties>
-    <workflow name="%(workflow_name)s" engine="oozie" path="%(workflow_path)s"/>
-    <retry policy='periodic' delay='minutes(30)' attempts='3'/>
-</process>
-''')
-
-falcon_feed_template = '''
-<feed xmlns='uri:falcon:feed:0.1' name='%(feed_name)s'>
-  <tags>entity_type=feed,format=%(feed_format)s,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,feed_type=%(feed_type)s</tags>
-  <availabilityFlag>_SUCCESS</availabilityFlag>
-  <frequency>days(1)</frequency>
-  <timezone>GMT+08:00</timezone>
-  <late-arrival cut-off='hours(18)'/>
-  <clusters>
-    <cluster name='TMDATALAKEP' type='source'>
-      <validity start='%(start_utc)s' end='2099-12-31T00:00Z'/>
-      %(retention)s
-      <locations>
-        <location type='data' path='%(feed_path)s'></location>
-        <location type='stats' path='/'></location>
-      </locations>
-    </cluster>
-  </clusters>
-  <locations>
-    <location type='data' path='%(feed_path)s'></location>
-    <location type='stats' path='/'></location>
-  </locations>
-  <ACL owner='trace' group='users' permission='0x755'/>
-  <schema location='/none' provider='/none'/>
-  <properties>
-    <property name='queueName' value='oozie'></property>
-    <property name='jobPriority' value='NORMAL'></property>
-    <property name="oozie.processing.timezone" value="UTC" />
-  </properties>
-</feed>
-'''
-
-falcon_hivefeed_template = '''
-<feed xmlns='uri:falcon:feed:0.1' name='%(feed_name)s'>
-  <tags>entity_type=feed,format=%(feed_format)s,stage=%(stage)s,source=%(source_name)s,schema=%(schema)s,table=%(table)s,feed_type=%(feed_type)s</tags>
-  <availabilityFlag>_SUCCESS</availabilityFlag>
-  <frequency>days(1)</frequency>
-  <timezone>GMT+08:00</timezone>
-  <late-arrival cut-off='hours(18)'/>
-  <clusters>
-    <cluster name='TMDATALAKEP' type='source'>
-      <validity start='%(start_utc)s' end='2099-12-31T00:00Z'/>
-      %(retention)s
-    </cluster>
-  </clusters>
-  <table uri="%(feed_path)s"/>
-  <ACL owner='trace' group='users' permission='0x755'/>
-  <schema location='/none' provider='/none'/>
-  <properties>
-    <property name='queueName' value='oozie'></property>
-    <property name='jobPriority' value='NORMAL'></property>
-    <property name="oozie.processing.timezone" value="UTC" />
-  </properties>
-</feed>
-'''
-
-
+falcon_hivefeed_template = templates.get_template('falconhivefeed.xml.j2')
 
 oozie_properties = OrderedDict([
-    ('resourceManager','hdpmaster1.tm.com.my:8050'),
-    ('jobTracker','hdpmaster1.tm.com.my:8050'),
-    ('nameNode','hdfs://hdpmaster1.tm.com.my:8020'),
+    ('resourceManager', 'hdpmaster1.tm.com.my:8050'),
+    ('jobTracker', 'hdpmaster1.tm.com.my:8050'),
+    ('nameNode', 'hdfs://hdpmaster1.tm.com.my:8020'),
 #    ('hivejdbc', 'jdbc:hive2://hdpmaster1.tm.com.my:10000/default'),
-    ('oozie.wf.application.path','/user/trace/workflows/%(workflow)s/'),
-    ('oozie.use.system.libpath','true'),
+    ('oozie.wf.application.path', '/user/trace/workflows/%(workflow)s/'),
+    ('oozie.use.system.libpath', 'true'),
     ('prefix', None),
-    ('jdbc_uri','jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
+    ('jdbc_uri', 'jdbc:oracle:thin:@%(host)s:%(port)s/%(tns)s'),
     ('username', None),
-    ('password',None),
+    ('password', None),
     ('source_name', None),
     ('direct', None),
     ('targetdb', None),
@@ -353,7 +269,7 @@ def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
         'outputs': outputs_xml,
         'inputs': inputs_xml,
     }
-    job = falcon_process_template % params
+    job = falcon_process_template.render(**params)
     return params, job
 
 
@@ -385,7 +301,7 @@ def falcon_feed(stage, properties, feed, feed_path, feed_format,
        'stage': stage,
        'retention': rt
     }
-    job = falcon_feed_template % params
+    job = falcon_feed_template.render(**params)
     return params, job
 
 def write_falcon_hivefeed(storedir, stage, properties, feed, feed_path, 
@@ -416,7 +332,7 @@ def falcon_hivefeed(stage, properties, feed, feed_path, feed_format,
        'stage': stage,
        'retention': rt
     }
-    job = falcon_hivefeed_template % params
+    job = falcon_hivefeed_template.render(**params)
     return params, job
 
 
@@ -476,7 +392,7 @@ def main():
                     opts['targetdb'] = conf['targetdb'] % params
                     opts['prefix'] = conf['prefix']
                     hive_create.append(
-                        hive_create_template % opts
+                        hive_create_template.render(**opts)
                     )
     
                 for process, proc_opts in PROCESSES.items():

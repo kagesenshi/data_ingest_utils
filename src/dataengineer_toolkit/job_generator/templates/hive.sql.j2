@@ -1,0 +1,13 @@
+CREATE DATABASE IF NOT EXISTS INGEST_{{ targetdb }};
+
+create table if not exists ingest_{{ targetdb }}.{{ schema }}_{{ table }}_schema
+   row format SERDE
+   'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS AVRO
+TBLPROPERTIES (
+   'avro.schema.url'='hdfs://{{ prefix }}/source/{{ source_name }}/{{ schema }}_{{ table }}/CURRENT/.metadata/schema.avsc'
+);
+
+CREATE EXTERNAL TABLE IF NOT EXISTS INGEST_{{ targetdb }}.{{ schema }}_{{ table }}_CURRENT
+LIKE INGEST_{{ targetdb }}.{{ schema }}_{{ table }}_SCHEMA
+STORED AS PARQUET LOCATION '{{ prefix }}/source/{{ source_name }}/{{ schema }}_{{ table }}/CURRENT';

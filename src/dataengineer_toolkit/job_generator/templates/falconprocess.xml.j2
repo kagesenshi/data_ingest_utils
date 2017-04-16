@@ -1,0 +1,20 @@
+<process xmlns='uri:falcon:process:0.1' name="{{ process_name }}">
+    <tags>entity_type=process,activity_type=ingestion,stage={{ stage }},source={{ source_name }},schema={{ schema }},table={{ table }},workflow={{ workflow }}</tags>
+    <clusters>
+        <cluster name="TMDATALAKEP">
+            <validity start="{{ start_utc }}" end="2099-12-31T00:00Z"/>
+        </cluster>
+    </clusters>
+    <parallel>1</parallel>
+    <order>FIFO</order>
+    <frequency>hours({{ frequency_hours }})</frequency>
+    <timezone>GMT+08:00</timezone>
+    {{ inputs }}
+    {{ outputs }}
+    <properties>
+        {{ properties }}
+        <property name="oozie.processing.timezone" value="UTC" />
+    </properties>
+    <workflow name="{{ workflow_name }}" engine="oozie" path="{{ workflow_path }}"/>
+    <retry policy='periodic' delay='minutes(30)' attempts='3'/>
+</process>

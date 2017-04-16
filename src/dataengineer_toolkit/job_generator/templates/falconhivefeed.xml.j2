@@ -1,0 +1,21 @@
+<feed xmlns='uri:falcon:feed:0.1' name='{{ feed_name }}'>
+  <tags>entity_type=feed,format={{ feed_format }},stage={{ stage }},source={{ source_name }},schema={{ schema }},table={{ table }},feed_type={{ feed_type }}</tags>
+  <availabilityFlag>_SUCCESS</availabilityFlag>
+  <frequency>days(1)</frequency>
+  <timezone>GMT+08:00</timezone>
+  <late-arrival cut-off='hours(18)'/>
+  <clusters>
+    <cluster name='TMDATALAKEP' type='source'>
+      <validity start='{{ start_utc }}' end='2099-12-31T00:00Z'/>
+      {{ retention }}
+    </cluster>
+  </clusters>
+  <table uri="{{ feed_path }}"/>
+  <ACL owner='trace' group='users' permission='0x755'/>
+  <schema location='/none' provider='/none'/>
+  <properties>
+    <property name='queueName' value='oozie'></property>
+    <property name='jobPriority' value='NORMAL'></property>
+    <property name="oozie.processing.timezone" value="UTC" />
+  </properties>
+</feed>

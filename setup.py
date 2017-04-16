@@ -13,10 +13,12 @@ setup(name='dataengineer-toolkit',
         package_dir={'':'src'},
         entry_points={
             'console_scripts': [
-                'oracle_profiler=dataengineer_toolkit.dbprofiler.oracle:main'
-                ]
-            },
+                'oracle_profiler=dataengineer_toolkit.dbprofiler.oracle:main',
+                'generate_job=dataengineer_toolkit.job_generator.generator:main'
+            ]
+        },
         install_requires=[
+            'python-dateutil',
             'sqlalchemy',
             'PyYAML',
             'PySocks',
