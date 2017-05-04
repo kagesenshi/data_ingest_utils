@@ -9,6 +9,8 @@ import shutil
 from datetime import datetime, timedelta
 from dateutil.parser import parse as parse_date
 from jinja2 import Environment, PackageLoader, select_autoescape
+from ConfigParser import ConfigParser
+from RestrictedPython import compile_restricted
 
 templates = Environment(
     loader=PackageLoader('dataengineer_toolkit.job_generator', 'templates'),
@@ -37,7 +39,6 @@ oozie_properties = OrderedDict([
     ('source_name', None),
     ('direct', None),
     ('targetdb', None),
-    ('stagingdb', None),
     ('backdate', '7'),
     ('schema', None),
     ('table', None),
@@ -56,47 +57,6 @@ JAVA_TYPE_MAP = {
 #    'NUMBER': 'String',
 #    'CHAR': 'String',
 #    'LONG': 'Long',
-}
-
-STAGES = {
-   'dev': {
-      'prefix': '/user/trace/development/',
-      'targetdb': '%(source_name)s_DEV',
-      'stagingdb': 'staging_dev',
-   },
-   'test': {
-      'prefix': '/user/trace/test/',
-      'targetdb': '%(source_name)s',
-      'stagingdb': 'staging_test',
-   },
-   'prod': {
-      'prefix': '/user/trace/',
-      'targetdb': '%(source_name)s',
-      'stagingdb': 'staging',
-   }
-}
-
-PROCESSES = {
-    'ingest-full': {
-        'workflow': 'ingest-full',
-        'out_feeds': ['full'],
-        'condition': lambda x: x['merge_column'] and x['check_column'],
-    },
-    'ingest-increment': {
-        'workflow': 'ingest-increment',
-        'out_feeds': ['increment'],
-    },
-    'transform-full': {
-        'in_feeds': ['full'],
-        'workflow': 'transform-full',
-    },
-    'transform-increment': {
-        'in_feeds': ['increment'],
-        'workflow': 'transform-increment',
-    },
-    'incremental-ingest-frozen': {
-        'workflow': 'incremental-ingest-frozen',
-    }
 }
 
 EXEC_TIME = {
@@ -138,46 +98,13 @@ EXEC_TIME = {
     }
 }
 
-FEEDS = {
-   'full-retention': {
-       'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/ingest_date=${YEAR}-${MONTH}-${DAY}',
-       'format': 'parquet',
-       'exec_time': '00:00',
-       'retention': 365
-   },
-   'increment-retention': {
-        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/ingest_date=${YEAR}-${MONTH}-${DAY}',
-        'format': 'parquet',
-        'exec_time': '00:00',
-        'retention': 365
-   },
-   'full': {
-       'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/CURRENT/',
-       'format': 'parquet',
-       'exec_time': '00:00',
-   },
-   'increment': {
-        'path': '%(prefix)s/source/%(source_name)s/%(schema)s_%(table)s/INCREMENT/CURRENT',
-        'format': 'parquet',
-        'exec_time': '00:00'
-   },
-}
-
-HIVE_FEEDS = {
-    'hive-retention' : {
-        'path': 'catalog:%(targetdb)s_HISTORY:%(schema)s_%(table)s#ingest_date=${YEAR}-${MONTH}-${DAY}',
-        'format': 'orc',
-        'exec_time': '00:00',
-        'retention': 365
-    }
-}
-
 ARTIFACTS='artifacts/'
 
 FOREVER=36135
 
-def get_exec_time(source, process):
-    return EXEC_TIME.get(source, {}).get(process, '03:01')
+def get_exec_time(source, process, schedules):
+    return schedules.get(source, {}).get(process, '03:01')
+
 
 def generate_utc_time(t, dayoffset=0):
     tt = (datetime.now() + timedelta(days=dayoffset)).strftime('%Y-%m-%d')
@@ -185,17 +112,20 @@ def generate_utc_time(t, dayoffset=0):
     start_dt = parse_date(dt)
     return (start_dt - timedelta(hours=8)).strftime('%Y-%m-%dT%H:%MZ')
 
+
 def default_feed_name(stage, properties, feed):
     return (stage + 
         '-%(source_name)s-%(schema)s-%(table)s-' % properties +
         feed
     ).replace('_','')
 
+
 def default_process_name(stage, properties):
     return (
         stage + 
         '-%(source_name)s-%(schema)s-%(table)s-%(workflow)s' % properties
     ).replace('_','')
+
 
 def write_oozie_config(storedir, properties):
     filename = '%(source_name)s-%(schema)s-%(table)s.properties' % properties
@@ -206,6 +136,7 @@ def write_oozie_config(storedir, properties):
             '%s=%s' % (k,v) for k,v in oozie_config(properties).items()
         ])
         f.write(job)
+
 
 def oozie_config(properties):
     prop = oozie_properties.copy()
@@ -220,6 +151,7 @@ def oozie_config(properties):
     )
     return prop
 
+
 def write_falcon_process(storedir, stage, properties, in_feeds=None,
         out_feeds=None, process_time='05:00'):
     filename = '%(source_name)s-%(schema)s-%(table)s.xml' % properties
@@ -230,7 +162,6 @@ def write_falcon_process(storedir, stage, properties, in_feeds=None,
                 process_time)
         f.write(job)
 
-   
 
 def falcon_process(stage, properties, in_feeds=None, out_feeds=None,
         process_time='05:00'):
@@ -283,6 +214,7 @@ def write_falcon_feed(storedir, stage, properties, feed, feed_path,
                     feed_path, feed_format, exec_time, retention)
         f.write(job)
 
+
 def falcon_feed(stage, properties, feed, feed_path, feed_format, 
             exec_time='00:00', retention=FOREVER):
     if retention is not None:
@@ -295,7 +227,7 @@ def falcon_feed(stage, properties, feed, feed_path, feed_format,
        'source_name': properties['source_name'],
        'start_utc': generate_utc_time(exec_time),
        'feed_name': default_feed_name(stage, properties, feed), 
-       'feed_path': feed_path % properties,
+       'feed_path': feed_path.format(**properties),
        'feed_type': feed,
        'feed_format': feed_format,
        'stage': stage,
@@ -304,18 +236,21 @@ def falcon_feed(stage, properties, feed, feed_path, feed_format,
     job = falcon_feed_template.render(**params)
     return params, job
 
+
 def write_falcon_hivefeed(storedir, stage, properties, feed, feed_path, 
-        feed_format, exec_time='00:00', retention=FOREVER):
+                          feed_format, exec_time='00:00', retention=FOREVER):
     filename = '%(source_name)s-%(schema)s-%(table)s.xml' % properties
     if not os.path.exists(storedir):
         os.makedirs(storedir)
     with open('%s/%s' % (storedir, filename), 'w') as f:
-        params, job = falcon_hivefeed(stage, properties, feed, 
-                    feed_path, feed_format, exec_time, retention)
+        params, job = falcon_hivefeed(
+                        stage, properties, feed, 
+                        feed_path, feed_format, exec_time, retention)
         f.write(job)
 
+
 def falcon_hivefeed(stage, properties, feed, feed_path, feed_format, 
-            exec_time='00:00', retention=FOREVER):
+                    exec_time='00:00', retention=FOREVER):
     if retention is not None:
         rt = "<retention limit='days(%s)' action='delete'/>" % retention
     else:
@@ -326,7 +261,7 @@ def falcon_hivefeed(stage, properties, feed, feed_path, feed_format,
        'source_name': properties['source_name'],
        'start_utc': generate_utc_time(exec_time),
        'feed_name': default_feed_name(stage, properties, feed), 
-       'feed_path': feed_path % properties,
+       'feed_path': feed_path.format(**properties),
        'feed_type': feed,
        'feed_format': feed_format,
        'stage': stage,
@@ -339,8 +274,66 @@ def falcon_hivefeed(stage, properties, feed, feed_path, feed_format,
 def main():
     argparser = argparse.ArgumentParser(description='Generate oozie and falcon configurations for ingestion')
     argparser.add_argument('profilerjson', help='JSON output from oracle_profiler.py')
+    argparser.add_argument('-c', '--config', help='Config file', default=None)
     opts = argparser.parse_args()
     hive_create = []
+
+    config = opts.config or 'generator.cfg'
+    if not os.path.exists(config):
+        raise Exception('Config file "%s" does not exist' % config)
+
+    cfg = ConfigParser()
+    cfg.readfp(open(config))
+
+    stages = {}
+    for envkey in [x for x in cfg.sections() if x.startswith('env:')]:
+        env = envkey.split(':')[1]
+        stages.setdefault(env, {})
+        stages[env]['prefix'] = cfg.get(envkey, 'prefix')
+        stages[env]['targetdb'] = cfg.get(envkey, 'targetdb')
+
+    processes = {}
+    for prockey in [x for x in cfg.sections() if x.startswith('process:')]:
+        proc = prockey.split(':')[1]
+        processes.setdefault(proc, {})
+        processes[proc]['workflow'] = cfg.get(prockey, 'workflow')
+        if cfg.has_option(prockey, 'out_feeds'):
+            processes[proc]['out_feeds'] = cfg.get(prockey,
+                                                   'out_feeds').strip().split()
+        if cfg.has_option(prockey, 'in_feeds'):
+            processes[proc]['in_feeds'] = cfg.get(prockey,
+                                                  'in_feeds').strip().split()
+        if cfg.has_option(prockey, 'condition'):
+            condition_src = cfg.get(prockey, 'condition')
+            condition = eval(compile_restricted(condition_src, filename=config,
+                                                mode='eval'))
+            processes[proc]['condition'] = condition
+
+    feeds = {}
+    for feedkey in [x for x in cfg.sections() if x.startswith('feed:')]:
+        feed = feedkey.split(':')[1]
+        feeds.setdefault(feed, {})
+        feeds[feed]['path'] = cfg.get(feedkey, 'path')
+        feeds[feed]['format'] = 'parquet'
+        feeds[feed]['exec_time'] = '00:00'
+
+    hive_feeds = {}
+    for feedkey in [x for x in cfg.sections() if x.startswith('hive_feed:')]:
+        feed = feedkey.split(':')[1]
+        hive_feeds.setdefault(feed, {})
+        hive_feeds[feed]['path'] = cfg.get(feedkey, 'path')
+        hive_feeds[feed]['format'] = 'orc'
+        hive_feeds[feed]['exec_time'] = '00:00'
+
+    schedules = {}
+    for schedkey in [x for x in cfg.sections() if x.startswith('schedule:')]:
+        sched = schedkey.split(':')[1]
+        schedules.setdefault(sched, {})
+        schedules[sched]['ingest-full'] = cfg.get(schedkey, 'ingest-full')
+        schedules[sched]['ingest-increment'] = cfg.get(schedkey, 'ingest-increment')
+        schedules[sched]['transform-full'] = cfg.get(schedkey, 'transform-full')
+        schedules[sched]['transform-increment'] = cfg.get(schedkey, 'transform-increment')
+
     import csv
 
     if os.path.exists(ARTIFACTS):
@@ -383,27 +376,25 @@ def main():
                 'check_column': table['check_column'],
                 'direct': ds['direct']
             }
-   
-            for stage, conf in STAGES.items():
+
+            for stage, conf in stages.items():
 
                 if stage in ['prod']:
                     opts = params.copy()
-                    opts['stagingdb'] = conf['stagingdb']
-                    opts['targetdb'] = conf['targetdb'] % params
+                    opts['targetdb'] = conf['targetdb'].format(**params)
                     opts['prefix'] = conf['prefix']
                     hive_create.append(
                         hive_create_template.render(**opts)
                     )
-    
-                for process, proc_opts in PROCESSES.items():
+
+                for process, proc_opts in processes.items():
                     opts = params.copy()
                     opts['prefix'] = conf['prefix']
-                    opts['targetdb'] = conf['targetdb'] % params
-                    opts['stagingdb'] = conf['stagingdb'] 
+                    opts['targetdb'] = conf['targetdb'].format(**params)
 
                     wf = proc_opts['workflow']
                     opts['workflow'] = wf
-                    opts['wfpath'] = os.path.join(conf['prefix'],'workflows', wf)
+                    opts['wfpath'] = os.path.join(conf['prefix'], 'workflows', wf)
                     if not proc_opts.get('condition', lambda x: True):
                         continue
 
@@ -413,10 +404,10 @@ def main():
                     write_falcon_process(storedir, stage, opts,
                         proc_opts.get('in_feeds', []), 
                         proc_opts.get('out_feeds', []),
-                        get_exec_time(opts['source_name'], process)
+                        get_exec_time(opts['source_name'], process, schedules)
                     )
 
-                for feed, feed_opts in FEEDS.items():
+                for feed, feed_opts in feeds.items():
                     opts = params.copy()
                     opts['prefix'] = conf['prefix']
                     storedir = '%s/%s-falconfeed-%s' % (ARTIFACTS, stage, feed)
@@ -425,18 +416,18 @@ def main():
                                     feed_opts['exec_time'],
                                     feed_opts.get('retention', FOREVER))
 
-                for feed, feed_opts in HIVE_FEEDS.items():
+                for feed, feed_opts in hive_feeds.items():
                     opts = params.copy()
                     opts['prefix'] = conf['prefix']
-                    opts['targetdb'] = conf['targetdb'] % params
+                    opts['targetdb'] = conf['targetdb'].format(**params)
                     storedir = '%s/%s-falconfeed-%s' % (ARTIFACTS, stage, feed)
                     write_falcon_hivefeed(storedir, stage, opts, feed,
                                     feed_opts['path'], feed_opts['format'],
                                     feed_opts['exec_time'],
                                     feed_opts.get('retention', FOREVER))
 
-
     open('hive-create.sql', 'w').write('\n'.join(hive_create))
+
 
 if __name__ == '__main__':
     main()

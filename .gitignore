@@ -16,3 +16,4 @@ dev/
 *.log
 venv/
 logs/
+artifacts/
